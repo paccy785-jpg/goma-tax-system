@@ -1,0 +1,49 @@
+name: Build T6 Print Station APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 't6-print-station/**'
+      - '.github/workflows/build-t6-apk.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: t6-print-station
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build the APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk T6-Print-Station.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: T6-Print-Station
+          path: t6-print-station/T6-Print-Station.apk
+
+      - name: Publish it as the "t6-latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: t6-latest
+          name: T6 Print Station (latest)
+          files: t6-print-station/T6-Print-Station.apk
+          make_latest: true
