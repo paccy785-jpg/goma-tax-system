@@ -53,6 +53,18 @@ public final class ReceiptRenderer {
                         }
                     });
                     break;
+                case "seal": {
+                    // The DF seal of the Département des Finances, centred, about
+                    // half the paper width (as on the receipt shown on screen).
+                    final int size = Math.round(widthDots * 0.48f);
+                    blocks.add(new Block() {
+                        public int height() { return size + gap; }
+                        public void draw(Canvas c, int top) {
+                            SealDrawer.draw(c, (widthDots - size) / 2f, top + gap / 2f, size);
+                        }
+                    });
+                    break;
+                }
                 case "space":
                     blocks.add(new Block() {
                         public int height() { return Math.round(normal); }

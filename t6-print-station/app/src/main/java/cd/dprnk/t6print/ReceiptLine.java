@@ -8,7 +8,7 @@ import java.util.List;
 
 /** One line of a receipt, as the web app sends it (see printService.ts). */
 public final class ReceiptLine {
-    public String kind = "text"; // text | pair | rule | space
+    public String kind = "text"; // text | pair | rule | space | seal (the DF logo)
     public String text = "";
     public String label = "";
     public String value = "";

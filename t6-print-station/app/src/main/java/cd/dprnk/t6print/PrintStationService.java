@@ -35,7 +35,7 @@ public class PrintStationService extends Service {
     private static final long HEARTBEAT_MS = 30_000;
     /** A job left waiting longer than this (T6 off for hours) is not printed any more. */
     private static final long MAX_JOB_AGE_MS = 12L * 60 * 60 * 1000;
-    public static final String VERSION = "1.0.0";
+    public static final String VERSION = "1.1.0";
 
     private static volatile boolean running;
     private Thread worker;
