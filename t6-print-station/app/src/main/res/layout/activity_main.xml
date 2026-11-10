@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DPRNK — Imprimante des reçus"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Les reçus imprimés depuis l’application DPRNK sortent sur ce T6."
+            android:textSize="13sp" />
+
+        <!-- 1. Compte -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="1. Compte DPRNK"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/signInBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="E-mail"
+                android:inputType="textEmailAddress" />
+
+            <EditText
+                android:id="@+id/password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Mot de passe"
+                android:inputType="textPassword" />
+
+            <Button
+                android:id="@+id/signIn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Se connecter" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/signedInBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/signedInAs"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/signOut"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Se déconnecter" />
+        </LinearLayout>
+
+        <!-- 2. Imprimante -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="2. Imprimante"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Nom de ce T6 (affiché dans l’application DPRNK)"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/stationName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Imprimante intégrée (appareil Bluetooth associé)"
+            android:textSize="13sp" />
+
+        <Spinner
+            android:id="@+id/printer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Largeur du papier"
+            android:textSize="13sp" />
+
+        <RadioGroup
+            android:id="@+id/paper"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/paper58"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="58 mm" />
+
+            <RadioButton
+                android:id="@+id/paper80"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="24dp"
+                android:text="80 mm" />
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/testPrint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Imprimer une page de test" />
+
+        <!-- 3. Service -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="3. Réception des reçus"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <CheckBox
+            android:id="@+id/autoStart"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Démarrer automatiquement à l’allumage du T6" />
+
+        <Button
+            android:id="@+id/startStop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Démarrer" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>

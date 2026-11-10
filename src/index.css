@@ -1,0 +1,823 @@
+@import "tailwindcss";
+
+@theme {
+  /* One typeface across the whole system: Times New Roman. */
+  --font-sans: "Times New Roman", Times, serif;
+  --font-serif: "Times New Roman", Times, serif;
+  --font-mono: "Times New Roman", Times, serif;
+  --font-display: "Times New Roman", Times, serif;
+
+  /* Every text size 1px larger than Tailwind's defaults (Times New Roman reads small). */
+  --text-xs: calc(0.75rem + 1px);
+  --text-sm: calc(0.875rem + 1px);
+  --text-base: calc(1rem + 1px);
+  --text-lg: calc(1.125rem + 1px);
+  --text-xl: calc(1.25rem + 1px);
+  --text-2xl: calc(1.5rem + 1px);
+  --text-3xl: calc(1.875rem + 1px);
+  --text-4xl: calc(2.25rem + 1px);
+  --text-5xl: calc(3rem + 1px);
+  --text-6xl: calc(3.75rem + 1px);
+  --text-7xl: calc(4.5rem + 1px);
+  --text-8xl: calc(6rem + 1px);
+  --text-9xl: calc(8rem + 1px);
+
+  --color-ink: oklch(21% 0.025 260);
+  --color-muted: oklch(53% 0.025 260);
+  --color-faint: oklch(67% 0.02 260);
+  --color-paper: oklch(98% 0.008 85);
+  --color-surface: oklch(100% 0.004 85);
+  --color-surface2: oklch(95.5% 0.012 85);
+  --color-line: oklch(89% 0.018 85);
+  --color-accent: oklch(57% 0.16 36);
+  --color-accent-dark: oklch(43% 0.14 36);
+  --color-accent-soft: oklch(94% 0.045 45);
+  --color-navy: oklch(28% 0.045 258);
+  --color-navy2: oklch(34% 0.055 258);
+  --color-sage: oklch(52% 0.09 162);
+  --color-warn: oklch(68% 0.13 74);
+  --color-danger: oklch(57% 0.16 24);
+
+  --radius-panel: 18px;
+  --radius-control: 10px;
+
+  --shadow-soft: 0 10px 30px oklch(20% 0.03 260 / 0.07);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: calc(1rem + 1px);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Custom premium transitions */
+.transition-premium {
+  transition-property: transform, opacity, background-color, border-color, color, box-shadow;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: 200ms;
+}
+
+/* ------------------------------------------------------------------ */
+/* DPRNK vivid brand treatment                                         */
+/* ------------------------------------------------------------------ */
+.brand-title-vivid {
+  background: linear-gradient(100deg, oklch(72% 0.18 45) 0%, oklch(62% 0.19 36) 38%, oklch(55% 0.17 28) 72%, oklch(66% 0.15 55) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 0 rgb(255 255 255 / 0.04));
+}
+
+.brand-title-vivid-bright {
+  background: linear-gradient(100deg, #ffd9a8 0%, #ff9d5c 35%, #f4581c 70%, #ffc46b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 10px rgb(244 88 28 / 0.35));
+}
+
+.brand-mark-vivid {
+  background: linear-gradient(135deg, oklch(66% 0.18 42) 0%, oklch(55% 0.17 32) 55%, oklch(45% 0.14 30) 100%);
+  box-shadow: 0 8px 24px oklch(57% 0.16 36 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+
+/* ------------------------------------------------------------------ */
+/* Login 3D business header stage                                     */
+/* ------------------------------------------------------------------ */
+.login-stage {
+  perspective: 1400px;
+}
+
+/* Fixed presentation angle — the masthead intentionally does not track the
+   mouse or float, so the authority name stays anchored in one place. */
+.login-tilt {
+  transform: rotateX(6deg) rotateY(-10deg);
+  transform-style: preserve-3d;
+}
+
+.dprnk-3d {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  font-size: clamp(3.25rem, 13vw, 6.5rem);
+  background: linear-gradient(100deg, #ffe3b3 0%, #ff9d5c 28%, #f4581c 55%, #ffd166 80%, #ff9d5c 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Extruded depth behind the gradient face */
+.dprnk-3d::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  text-shadow:
+    1px 1px 0 #7c2d12,
+    2px 2px 0 #752a11,
+    3px 3px 0 #6d2710,
+    4px 4px 0 #64240e,
+    5px 5px 0 #5b200d,
+    6px 6px 0 #52200c,
+    7px 7px 0 #471c0b,
+    8px 8px 0 #3c180a,
+    10px 12px 0 rgb(0 0 0 / 0.35),
+    18px 26px 44px rgb(0 0 0 / 0.55);
+  transform: translateZ(-1px);
+}
+
+.login-grid-bg {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 80% at 40% 40%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 40% 40%, black 30%, transparent 75%);
+}
+
+.login-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+  animation: login-orb-drift 14s ease-in-out infinite alternate;
+}
+
+@keyframes login-orb-drift {
+  from { translate: 0 0; }
+  to { translate: 40px -30px; }
+}
+
+.login-doc {
+  transform-style: preserve-3d;
+  animation: login-doc-float 7s ease-in-out infinite;
+  box-shadow: 0 24px 50px -18px rgb(0 0 0 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+@keyframes login-doc-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -12px; }
+}
+
+.login-floor-glow {
+  background: radial-gradient(ellipse 55% 38% at 42% 62%, rgb(244 88 28 / 0.28), transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-doc,
+  .login-orb {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Centered 3D time & date header                                     */
+/* ------------------------------------------------------------------ */
+.clock3d-stage {
+  perspective: 1400px;
+}
+
+.clock3d-card {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx, 4deg)) rotateY(var(--ry, 0deg));
+  transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Rear slab: a real translated plane behind the face, not a fake shadow. */
+.clock3d-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background: oklch(17% 0.03 258);
+  transform: translateZ(-30px) translateY(16px);
+  box-shadow: 0 24px 40px -20px oklch(15% 0.02 260 / 0.6);
+  pointer-events: none;
+}
+
+.clock3d-face {
+  position: relative;
+  transform-style: preserve-3d;
+  border-radius: 20px;
+  background: var(--color-navy);
+  border: 1px solid rgba(255 255 255 / 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255 255 255 / 0.16),
+    0 22px 44px -24px oklch(20% 0.03 260 / 0.75),
+    0 4px 14px -8px oklch(20% 0.03 260 / 0.5);
+}
+
+.clock3d-rule {
+  height: 1px;
+  flex: 0 1 auto;
+  background: rgba(255 255 255 / 0.16);
+}
+
+.clock3d-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--color-sage);
+  animation: clock3d-live 1.8s ease-out infinite;
+}
+
+/* Extruded digit plate with a split-flap seam across the middle. */
+.clock3d-tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: oklch(34% 0.05 258);
+  border: 1px solid rgba(255 255 255 / 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255 255 255 / 0.2),
+    inset 0 -10px 18px rgba(0 0 0 / 0.22),
+    0 5px 0 oklch(24% 0.04 258),
+    0 13px 20px -10px oklch(14% 0.02 260 / 0.85);
+  perspective: 320px;
+}
+
+.clock3d-tile::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(0 0 0 / 0.42);
+  pointer-events: none;
+}
+
+/* Seconds plate carries an accent underline instead of a second tile colour. */
+.clock3d-tile--seconds::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  z-index: 1;
+}
+
+.clock3d-digit {
+  display: block;
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transform-origin: 50% 50%;
+  animation: clock3d-flip 420ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.clock3d-colon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  animation: clock3d-blink 1s steps(1, end) infinite;
+}
+
+.clock3d-date-plate {
+  max-width: 100%;
+  border-radius: 999px;
+  background: oklch(39% 0.05 258);
+  border: 1px solid rgba(255 255 255 / 0.1);
+  transform: translateZ(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255 255 255 / 0.16),
+    0 4px 0 oklch(26% 0.04 258),
+    0 10px 16px -8px oklch(14% 0.02 260 / 0.7);
+}
+
+@keyframes clock3d-flip {
+  0% {
+    transform: rotateX(-92deg);
+    opacity: 0;
+  }
+  45% {
+    transform: rotateX(14deg);
+    opacity: 1;
+  }
+  70% {
+    transform: rotateX(-6deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes clock3d-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0.28;
+  }
+}
+
+@keyframes clock3d-live {
+  0% {
+    box-shadow: 0 0 0 0 oklch(52% 0.09 162 / 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px oklch(52% 0.09 162 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(52% 0.09 162 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock3d-digit,
+  .clock3d-colon,
+  .clock3d-live-dot {
+    animation: none;
+  }
+
+  .clock3d-card {
+    transition: none;
+  }
+}
+
+/* Print utilities */
+@media print {
+  body {
+    background: transparent !important;
+    color: #111827 !important;
+  }
+  .print-hidden,
+  header,
+  nav,
+  aside {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* A sideways scrollbar that stays visible (macOS hides overlay scrollbars
+   until scrolling), so a wide card shows it can be scrolled. */
+/* Firefox only: in Chrome and Safari the standard properties would switch off
+   the ::-webkit-scrollbar styling below, which is what keeps the bar visible. */
+@supports not selector(::-webkit-scrollbar) {
+  .scroll-x-visible {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(70% 0.02 260) oklch(95% 0.008 85);
+  }
+}
+.scroll-x-visible::-webkit-scrollbar {
+  height: 10px;
+}
+.scroll-x-visible::-webkit-scrollbar-track {
+  background: oklch(95% 0.008 85);
+  border-radius: 999px;
+}
+.scroll-x-visible::-webkit-scrollbar-thumb {
+  background: oklch(70% 0.02 260);
+  border-radius: 999px;
+  border: 2px solid oklch(95% 0.008 85);
+}
+.scroll-x-visible::-webkit-scrollbar-thumb:hover {
+  background: oklch(55% 0.03 260);
+}
+
+/* Tax Payer Profile print: the standalone sheet (#pp-sheet) holds the file. */
+@media print {
+  body.print-profile #pp-sheet thead {
+    display: table-header-group;
+  }
+  body.print-profile #pp-sheet tr {
+    break-inside: avoid;
+  }
+  body.print-profile #pp-sheet .overflow-x-auto {
+    overflow: visible;
+  }
+}
+
+/*
+ * Compact layout of the Tax Payer Profile print — tighter than the screen but
+ * still airy: real gaps between tables, readable 10–11px type, rows that
+ * breathe. Applied while printing (and while the page measures itself to
+ * fit one sheet), never on screen otherwise.
+ */
+/* Printed declarations: every text size one pixel larger than on screen —
+   the standard sizes through their variables, the custom sizes one by one. */
+.pp-compact {
+  --text-xs: calc(0.75rem + 2px);
+  --text-sm: calc(0.875rem + 2px);
+  --text-base: calc(1rem + 2px);
+  --text-lg: calc(1.125rem + 2px);
+  --text-xl: calc(1.25rem + 2px);
+  --text-2xl: calc(1.5rem + 2px);
+  --text-3xl: calc(1.875rem + 2px);
+  --text-4xl: calc(2.25rem + 2px);
+}
+.pp-compact .text-\[10px\] {
+  font-size: 11px;
+}
+.pp-compact .text-\[11px\] {
+  font-size: 12px;
+}
+.pp-compact .text-\[12px\] {
+  font-size: 13px;
+}
+
+.pp-compact {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pp-compact > * + * {
+  margin-top: 8px !important;
+}
+.pp-compact .print\:hidden {
+  display: none !important;
+}
+.pp-compact .print\:block {
+  display: block !important;
+}
+.pp-compact section {
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+.pp-compact section > div:first-child {
+  padding: 6px 12px !important;
+}
+.pp-compact section h2 {
+  font-size: 14px !important;
+}
+/* The on-screen counters under each table title ("2 calculs enregistrés"…)
+   are not part of the official form: left off the print. */
+.pp-compact section > div:first-child p {
+  display: none !important;
+}
+.pp-compact th,
+.pp-compact th * {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+.pp-compact th {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  font-size: 10px !important;
+}
+.pp-compact td {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  font-size: 12px !important;
+}
+.pp-compact th:first-child,
+.pp-compact td:first-child {
+  padding-left: 14px !important;
+}
+.pp-compact th:last-child,
+.pp-compact td:last-child {
+  padding-right: 14px !important;
+}
+.pp-compact td .text-xs,
+.pp-compact td.text-xs {
+  font-size: 12px !important;
+}
+/* Empty-table notes and the foncier bailleur heading row: less vertical room. */
+.pp-compact td[colspan] {
+  padding-top: 5px !important;
+  padding-bottom: 5px !important;
+}
+.pp-compact .truncate {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* Print top band: masthead far left, Identification du redevable far right. */
+.pp-compact .pp-top {
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--color-ink);
+}
+.pp-compact .pp-top-left {
+  display: block !important;
+  /* As wide as its longest one-line entry (the country name, the CPF-NK and
+     DPR-NK lines); the declaration title wraps inside that width, so the
+     identification table beside it keeps the room it needs. */
+  flex: 0 0 auto;
+  width: min-content;
+  text-align: left;
+}
+/* Identification du redevable, in the narrow right half of the printed header:
+   each column is at least as wide as its longest heading word, headings wrap
+   between words only, and the gutters are tighter so all eight columns fit. */
+/* The foncier Calcul d'impôts table (12 columns) sizes its columns the same way. */
+.pp-compact .pp-ident-table,
+.pp-compact .pp-auto-table {
+  table-layout: auto !important;
+}
+.pp-compact .pp-auto-table th {
+  width: auto !important;
+  letter-spacing: 0.03em !important;
+  white-space: normal !important;
+  hyphens: none !important;
+}
+.pp-compact .pp-ident-table th {
+  width: auto !important;
+  letter-spacing: 0.03em !important;
+  vertical-align: bottom !important;
+  white-space: normal !important;
+  hyphens: none !important;
+}
+.pp-compact .pp-ident-table th,
+.pp-compact .pp-ident-table td {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+.pp-compact .pp-ident-table th:first-child,
+.pp-compact .pp-ident-table td:first-child {
+  padding-left: 12px !important;
+}
+.pp-compact .pp-ident-table th:last-child,
+.pp-compact .pp-ident-table td:last-child {
+  padding-right: 12px !important;
+}
+.pp-compact .pp-top-right {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+/* Document number (CPF000001…) of the printed declaration: top right corner,
+   right above the Identification du redevable table. */
+.pp-compact .pp-doc-code {
+  text-align: right;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-ink);
+  line-height: 1.2;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signature block: seal on the left edge, place/date and signatory on the right edge. */
+/* Three equal-sided columns: the seal on the left edge, place / date and the
+   signatory centred on the page under the table, the right side left empty. */
+.pp-compact .pp-sign {
+  display: grid !important;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  column-gap: 24px;
+  white-space: nowrap;
+  margin-top: 16px !important;
+  padding-bottom: 28px;
+}
+
+.pp-compact .pp-sign-center {
+  grid-column: 2;
+  text-align: center;
+}
+
+/* Impôt foncier document: the signature on the right edge, on the "Fait à" line. */
+.pp-compact .pp-sign-right {
+  grid-column: 3;
+  justify-self: end;
+  text-align: right;
+}
+
+/* Impôt locatif document: place / date and the signatory on the right edge. */
+.pp-compact .pp-sign.pp-sign-edge .pp-sign-center {
+  grid-column: 3;
+  justify-self: end;
+  text-align: right;
+}
+
+/* (1) Notez — the Nature code legend, right above Réservé à l'administration. */
+.pp-compact .pp-notez {
+  display: block !important;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-ink);
+  margin-top: -10px !important;
+  margin-bottom: 8px;
+}
+
+/* Réservé à l'administration: a bordered form box at the bottom of the page. */
+.pp-compact .pp-admin {
+  display: block !important;
+  margin-top: 4px !important;
+}
+.pp-compact .pp-admin table {
+  border: 1.5px solid var(--color-ink);
+}
+.pp-compact .pp-admin th {
+  border: 1px solid var(--color-ink);
+  padding: 6px 10px !important;
+  text-align: left;
+  font-size: 10.5px !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink);
+  background: oklch(96% 0.008 85);
+}
+.pp-compact .pp-admin td {
+  border: 1px solid var(--color-ink);
+  height: 42px;
+  padding: 0 !important;
+}
+
+.pp-compact .pp-admin td.pp-admin-filled {
+  padding: 8px 10px !important;
+  vertical-align: top;
+  font-size: 12px !important;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.pp-compact .pp-admin td.pp-admin-short {
+  height: 30px;
+}
+
+/* Foncier admin box: "Signature du gestionnaire" at the foot of the stamp column. */
+.pp-compact .pp-admin td.pp-admin-sig {
+  vertical-align: top;
+  height: 40px;
+}
+.pp-compact .pp-admin .pp-admin-siglabel {
+  padding: 6px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink);
+  background: oklch(96% 0.008 85);
+  border-bottom: 1px solid var(--color-ink);
+  margin-bottom: 30px;
+  white-space: nowrap;
+}
+
+/* Sections kept on screen but left off the printed document. */
+/* Printed at full size, a long declaration runs onto a second page: never
+   split a table row, the masthead, the signature lines, the Notez legend or
+   the Réservé à l'administration box across two pages, and keep each table's
+   title with its table. */
+.pp-compact tr,
+.pp-compact .pp-top,
+.pp-compact .pp-sign,
+.pp-compact .pp-notez,
+.pp-compact .pp-admin {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pp-compact section > div:first-child {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+/* Vertical tables (Identification du redevable on the printed declarations
+   and the note de perception): tight rows. */
+.pp-compact .np-vertical-table th {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  line-height: 1.05 !important;
+}
+.pp-compact .np-vertical-table td,
+.pp-compact .np-vertical-table td .np-value {
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+  line-height: 1.1 !important;
+}
+.pp-compact .np-vertical-table td .np-value {
+  padding: 0 !important;
+}
+/* Shown only on the printed copy (the screen keeps it hidden). */
+.pp-compact .pp-printonly {
+  display: block !important;
+}
+.pp-compact .pp-noprint {
+  display: none !important;
+}
+
+/* Impôt foncier and Impôt locatif print documents (#pp-sheet): every text one
+   pixel larger again — the standard sizes, the custom sizes, the table
+   headings and cells, the card titles, the Notez legend and the Réservé à
+   l'administration box. The note de perception print is not affected. */
+#pp-sheet.pp-compact {
+  --text-xs: calc(0.75rem + 3px);
+  --text-sm: calc(0.875rem + 3px);
+  --text-base: calc(1rem + 3px);
+  --text-lg: calc(1.125rem + 3px);
+  --text-xl: calc(1.25rem + 3px);
+  --text-2xl: calc(1.5rem + 3px);
+  --text-3xl: calc(1.875rem + 3px);
+  --text-4xl: calc(2.25rem + 3px);
+}
+#pp-sheet.pp-compact .text-\[10px\] {
+  font-size: 12px;
+}
+#pp-sheet.pp-compact .text-\[11px\] {
+  font-size: 13px;
+}
+#pp-sheet.pp-compact .text-\[12px\] {
+  font-size: 14px;
+}
+#pp-sheet.pp-compact section h2 {
+  font-size: 15px !important;
+}
+#pp-sheet.pp-compact th {
+  font-size: 11px !important;
+}
+#pp-sheet.pp-compact td,
+#pp-sheet.pp-compact td .text-xs,
+#pp-sheet.pp-compact td.text-xs {
+  font-size: 13px !important;
+}
+#pp-sheet.pp-compact .pp-notez {
+  font-size: 13px;
+}
+#pp-sheet.pp-compact .pp-admin th,
+#pp-sheet.pp-compact .pp-admin .pp-admin-siglabel {
+  font-size: 11.5px !important;
+}
+#pp-sheet.pp-compact .pp-admin td.pp-admin-filled {
+  font-size: 13px !important;
+}
+/* …and a little less empty space around the blocks, so the larger text still
+   fits on one page instead of being shrunk back down to fit. */
+#pp-sheet.pp-compact > * + * {
+  margin-top: 6px !important;
+}
+#pp-sheet.pp-compact .pp-top {
+  padding-bottom: 6px;
+}
+#pp-sheet.pp-compact section > div:first-child {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+#pp-sheet.pp-compact .pp-sign {
+  margin-top: 10px !important;
+  padding-bottom: 10px;
+}
+#pp-sheet.pp-compact .pp-notez {
+  margin-bottom: 4px;
+}
+#pp-sheet.pp-compact .pp-admin td {
+  height: 34px;
+}
+#pp-sheet.pp-compact .pp-admin td.pp-admin-short {
+  height: 26px;
+}
+#pp-sheet.pp-compact .np-vertical-table th,
+#pp-sheet.pp-compact .np-vertical-table td,
+#pp-sheet.pp-compact .np-vertical-table td .np-value {
+  line-height: 1 !important;
+}
+#pp-sheet.pp-compact .pp-notez {
+  line-height: 1.4;
+}
+#pp-sheet.pp-compact .pp-admin th {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}

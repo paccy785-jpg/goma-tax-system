@@ -1,0 +1,6 @@
+{
+  "name": "DPRNK",
+  "description": "Official DPRNK revenue portal for the city of Goma, DRC, featuring business license tax (patente) assessment, cash management, maker-checker approvals, and official business license certificate issuance and verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

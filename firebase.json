@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "default": "gen-lang-client-0693082866"
+  },
+  "firestore": [
+    {
+      "database": "goma-tax-system",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    },
+    {
+      "database": "goma-tax-system-dgi",
+      "rules": "firestore.dgi.rules",
+      "indexes": "firestore.dgi.indexes.json"
+    }
+  ]
+}

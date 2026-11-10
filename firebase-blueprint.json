@@ -1,0 +1,394 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access control for tax administration",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["Admin", "Supervisor", "Cashier", "Auditor"] },
+        "assignedOffice": { "type": "string", "maxLength": 128 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email", "role", "displayName"]
+    },
+    "TaxType": {
+      "title": "TaxType",
+      "description": "Head of tax levied as a percentage of a declared base, e.g. IF (impot foncier, 15% of declared property value) and IRL (impot sur les revenus locatifs, 15% of declared annual rent). Distinct from the flat-fee patente schedules.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 16 },
+        "label": { "type": "string", "maxLength": 256 },
+        "labelEn": { "type": "string", "maxLength": 256 },
+        "ratePercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "baseKind": {
+          "type": "string",
+          "enum": ["flat_tariff", "declared_property_value", "annual_rental_income"]
+        },
+        "baseDescription": { "type": "string", "maxLength": 256 },
+        "numberPrefix": { "type": "string", "maxLength": 8 },
+        "isActive": { "type": "boolean" },
+        "legalBasis": { "type": "string", "maxLength": 256 },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "code", "label", "ratePercent", "baseKind", "numberPrefix", "isActive"]
+    },
+    "Taxpayer": {
+      "title": "Taxpayer",
+      "description": "Registered business subject to patente business license tax in Goma",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 128 },
+        "tradeName": { "type": "string", "maxLength": 128 },
+        "rccm": { "type": "string", "maxLength": 64 },
+        "idNat": { "type": "string", "maxLength": 64 },
+        "nif": { "type": "string", "maxLength": 64 },
+        "category": { "type": "string", "enum": ["Category_A_Grande", "Category_B_Moyenne", "Category_C_Petite", "Category_D_Micro"] },
+        "commune": { "type": "string", "enum": ["Goma", "Karisimbi"] },
+        "quarter": { "type": "string", "maxLength": 64 },
+        "avenue": { "type": "string", "maxLength": 128 },
+        "phoneNumber": { "type": "string", "maxLength": 32 },
+        "ownerName": { "type": "string", "maxLength": 128 },
+        "registeredBy": { "type": "string", "maxLength": 128 },
+        "registeredAt": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["Active", "Suspended", "Pending"] }
+      },
+      "required": ["businessName", "commune", "category", "ownerName"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Tax assessment and billing record for a business license linked to a business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 128 },
+        "ownerFullName": { "type": "string", "maxLength": 128 },
+        "nationalIdOrRccm": { "type": "string", "maxLength": 64 },
+        "commune": { "type": "string", "maxLength": 64 },
+        "quartier": { "type": "string", "maxLength": 64 },
+        "activitySector": { "type": "string", "enum": ["commerce", "restauration", "services", "artisanat", "industrie", "autre"] },
+        "sizeClass": { "type": "string", "enum": ["petite", "moyenne", "grande"] },
+        "taxpayerId": { "type": "string", "maxLength": 128 },
+        "taxpayerName": { "type": "string", "maxLength": 128 },
+        "assessmentNumber": { "type": "string", "maxLength": 64 },
+        "noticeNumber": { "type": "string", "maxLength": 64 },
+        "fiscalYear": { "type": "number" },
+        "category": { "type": "string", "maxLength": 64 },
+        "baseAnnualFeeUSD": { "type": "number" },
+        "amountDueUSD": { "type": "number" },
+        "amountDueCDF": { "type": "number" },
+        "exchangeRateCDF": { "type": "number" },
+        "isProrated": { "type": "boolean" },
+        "proratedMonths": { "type": "number" },
+        "registrationDate": { "type": "string", "maxLength": 64 },
+        "issueDate": { "type": "string", "maxLength": 64 },
+        "dueDate": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["Pending", "Paid", "Overdue", "Cancelled", "Draft", "Pending_Approval", "Approved"] },
+        "assessedBy": { "type": "string", "maxLength": 128 },
+        "assessedByName": { "type": "string", "maxLength": 128 },
+        "cancelledBy": { "type": "string", "maxLength": 128 },
+        "cancelledByName": { "type": "string", "maxLength": 128 },
+        "cancelledAt": { "type": "string", "maxLength": 64 },
+        "cancellationReason": { "type": "string", "maxLength": 512 },
+        "rateId": { "type": "string", "maxLength": 128 },
+        "rateVersion": { "type": "number" },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "approvedAt": { "type": "string", "maxLength": 64 },
+        "amountPaidUSD": { "type": "number" },
+        "amountPaidCDF": { "type": "number" },
+        "remainingBalanceUSD": { "type": "number" },
+        "remainingBalanceCDF": { "type": "number" },
+        "lastPaymentDate": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["amountDueUSD", "fiscalYear", "status", "dueDate"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment receipt collected for a patente assessment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "receiptNumber": { "type": "string", "maxLength": 64 },
+        "sequenceNumber": { "type": "number" },
+        "assessmentId": { "type": "string", "maxLength": 128 },
+        "assessmentNumber": { "type": "string", "maxLength": 64 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 128 },
+        "taxpayerId": { "type": "string", "maxLength": 128 },
+        "taxpayerName": { "type": "string", "maxLength": 128 },
+        "fiscalYear": { "type": "number" },
+        "amountPaidUSD": { "type": "number" },
+        "amountPaidCDF": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "CDF"] },
+        "paymentType": { "type": "string", "enum": ["full", "partial"] },
+        "isPartial": { "type": "boolean" },
+        "assessmentTotalUSD": { "type": "number" },
+        "previousPaidUSD": { "type": "number" },
+        "remainingBalanceUSD": { "type": "number" },
+        "remainingBalanceCDF": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 64 },
+        "cashierId": { "type": "string", "maxLength": 128 },
+        "cashierName": { "type": "string", "maxLength": 128 },
+        "receivedBy": { "type": "string", "maxLength": 128 },
+        "receivedByName": { "type": "string", "maxLength": 128 },
+        "paymentDate": { "type": "string", "maxLength": 64 },
+        "paidAt": { "type": "string", "maxLength": 64 },
+        "verified": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 512 }
+      },
+      "required": ["receiptNumber", "assessmentId", "amountPaidUSD", "receivedBy", "paymentType"]
+    },
+    "Counter": {
+      "title": "Counter",
+      "description": "Sequential counter for issuing atomic non-reusable receipt numbers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "currentSequence": { "type": "number" },
+        "lastReceiptNumber": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["currentSequence"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Tamper-evident audit trail for fiscal actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 128 },
+        "userRole": { "type": "string", "maxLength": 64 },
+        "action": { "type": "string", "maxLength": 128 },
+        "entityType": { "type": "string", "maxLength": 64 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 512 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "action", "timestamp"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Registered business taxpayer under Goma patente tax administration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 128 },
+        "ownerFullName": { "type": "string", "maxLength": 128 },
+        "nationalIdOrRccm": { "type": "string", "maxLength": 64 },
+        "phoneNumber": { "type": "string", "maxLength": 32 },
+        "physicalAddress": { "type": "string", "maxLength": 256 },
+        "commune": { "type": "string", "maxLength": 64 },
+        "quartier": { "type": "string", "maxLength": 64 },
+        "activitySector": { "type": "string", "enum": ["commerce", "restauration", "services", "artisanat", "industrie", "autre"] },
+        "sizeClass": { "type": "string", "enum": ["petite", "moyenne", "grande"] },
+        "registrationDate": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["actif", "inactif", "en radiation"] },
+        "storefrontPhotoUrl": { "type": "string", "maxLength": 2048 },
+        "registeredBy": { "type": "string", "maxLength": 128 },
+        "registeredByName": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["businessName", "ownerFullName", "nationalIdOrRccm", "phoneNumber", "physicalAddress", "commune", "quartier", "activitySector", "sizeClass", "registrationDate", "status"]
+    },
+    "TaxRateConfig": {
+      "title": "TaxRateConfig",
+      "description": "Patente tariff schedule configured by tax administration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "description": { "type": "string", "maxLength": 256 },
+        "annualRateUSD": { "type": "number" },
+        "exchangeRateCDF": { "type": "number" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["category", "annualRateUSD", "exchangeRateCDF"]
+    },
+    "TaxRate": {
+      "title": "TaxRate",
+      "description": "Annual patente fee for sector and size class combination with versioning and effective date",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "activitySector": { "type": "string", "enum": ["commerce", "restauration", "services", "artisanat", "industrie", "autre"] },
+        "sizeClass": { "type": "string", "enum": ["petite", "moyenne", "grande"] },
+        "annualFeeUSD": { "type": "number" },
+        "annualFeeCDF": { "type": "number" },
+        "exchangeRateCDF": { "type": "number" },
+        "effectiveStartDate": { "type": "string", "maxLength": 64 },
+        "effectiveEndDate": { "type": ["string", "null"], "maxLength": 64 },
+        "version": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "legalBasis": { "type": "string", "maxLength": 256 },
+        "notes": { "type": "string", "maxLength": 512 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["activitySector", "sizeClass", "annualFeeUSD", "effectiveStartDate", "version", "isActive"]
+    },
+    "CashSession": {
+      "title": "CashSession",
+      "description": "Daily cashier shift session recording opening float, collections, counted cash, variance, and supervisor approval",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "sessionNumber": { "type": "string", "maxLength": 64 },
+        "cashierId": { "type": "string", "maxLength": 128 },
+        "cashierName": { "type": "string", "maxLength": 128 },
+        "cashierEmail": { "type": "string", "maxLength": 128 },
+        "stationOffice": { "type": "string", "maxLength": 128 },
+        "openedAt": { "type": "string", "maxLength": 64 },
+        "openingBalanceUSD": { "type": "number" },
+        "openingBalanceCDF": { "type": "number" },
+        "openingNotes": { "type": "string", "maxLength": 512 },
+        "totalPaymentsCashUSD": { "type": "number" },
+        "totalPaymentsCashCDF": { "type": "number" },
+        "totalPaymentsOtherUSD": { "type": "number" },
+        "totalPaymentsOtherCDF": { "type": "number" },
+        "paymentCount": { "type": "number" },
+        "firstReceiptNumber": { "type": "string", "maxLength": 64 },
+        "lastReceiptNumber": { "type": "string", "maxLength": 64 },
+        "closedAt": { "type": "string", "maxLength": 64 },
+        "countedCashUSD": { "type": "number" },
+        "countedCashCDF": { "type": "number" },
+        "expectedCashUSD": { "type": "number" },
+        "expectedCashCDF": { "type": "number" },
+        "varianceUSD": { "type": "number" },
+        "varianceCDF": { "type": "number" },
+        "hasVariance": { "type": "boolean" },
+        "closingNotes": { "type": "string", "maxLength": 512 },
+        "varianceExplanation": { "type": "string", "maxLength": 512 },
+        "status": { "type": "string", "enum": ["open", "closed", "approved"] },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "approvedByName": { "type": "string", "maxLength": 128 },
+        "approvedAt": { "type": "string", "maxLength": 64 },
+        "supervisorNotes": { "type": "string", "maxLength": 512 },
+        "cashStatus": { "type": "string", "enum": ["in_drawer", "pending_audit", "in_custody", "deposited"] },
+        "depositId": { "type": "string", "maxLength": 128 },
+        "depositedAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["sessionNumber", "cashierId", "openedAt", "openingBalanceUSD", "openingBalanceCDF", "status", "cashStatus"]
+    },
+    "TreasuryDeposit": {
+      "title": "TreasuryDeposit",
+      "description": "Deposit of physical cash collected from closed approved sessions to the bank or municipal treasury",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "depositReference": { "type": "string", "maxLength": 64 },
+        "depositAmountUSD": { "type": "number" },
+        "depositAmountCDF": { "type": "number" },
+        "date": { "type": "string", "maxLength": 64 },
+        "depositedAt": { "type": "string", "maxLength": 64 },
+        "depositorId": { "type": "string", "maxLength": 128 },
+        "depositorName": { "type": "string", "maxLength": 128 },
+        "bankName": { "type": "string", "maxLength": 128 },
+        "bankDepositSlipRef": { "type": "string", "maxLength": 128 },
+        "bankDepositSlipUrl": { "type": "string", "maxLength": 2048 },
+        "approvingSupervisorId": { "type": "string", "maxLength": 128 },
+        "approvingSupervisorName": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["depositReference", "depositAmountUSD", "date", "depositorName", "bankName", "bankDepositSlipRef", "approvingSupervisorId"]
+    },
+    "ApprovalRequest": {
+      "title": "ApprovalRequest",
+      "description": "Maker-checker approval requests for sensitive actions: assessment cancellation, business deregistration, and tax rate overrides",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "requestType": { "type": "string", "enum": ["assessment_cancellation", "business_deregistration", "tax_rate_override"] },
+        "entityType": { "type": "string", "enum": ["Assessment", "Business", "TaxRate", "TaxRateConfig"] },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "entityTitle": { "type": "string", "maxLength": 256 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "requesterName": { "type": "string", "maxLength": 128 },
+        "requesterRole": { "type": "string", "enum": ["Admin", "Supervisor", "Cashier", "Auditor"] },
+        "justification": { "type": "string", "maxLength": 1024 },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "beforeValue": { "type": "object" },
+        "afterValue": { "type": "object" },
+        "reviewedBy": { "type": "string", "maxLength": 128 },
+        "reviewerName": { "type": "string", "maxLength": 128 },
+        "reviewerRole": { "type": "string", "enum": ["Admin", "Supervisor", "Cashier", "Auditor"] },
+        "reviewedAt": { "type": "string", "maxLength": 64 },
+        "reviewComment": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "requestType", "entityType", "entityId", "requesterId", "justification", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile containing roles and office assignment"
+    },
+    "/businesses/{businessId}": {
+      "schema": "Business",
+      "description": "Registry of businesses for patente tax collection in Goma"
+    },
+    "/taxpayers/{taxpayerId}": {
+      "schema": "Taxpayer",
+      "description": "Registry of businesses in Goma subject to patente"
+    },
+    "/assessments/{assessmentId}": {
+      "schema": "Assessment",
+      "description": "Tax assessments generated and approved for business licenses"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Official payments and receipts logged by cashiers"
+    },
+    "/counters/{counterId}": {
+      "schema": "Counter",
+      "description": "Sequential counters for unique receipt numbers and document serials"
+    },
+    "/cashSessions/{sessionId}": {
+      "schema": "CashSession",
+      "description": "Daily cashier shifts, opening floats, count reconciliation, and supervisor approvals"
+    },
+    "/treasuryDeposits/{depositId}": {
+      "schema": "TreasuryDeposit",
+      "description": "Official bank and treasury deposit records for cash in custody"
+    },
+    "/auditLog/{logId}": {
+      "schema": "AuditLog",
+      "description": "System event audit trail for compliance and auditor review"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System event audit trail for compliance and auditor review"
+    },
+    "/taxRates/{rateId}": {
+      "schema": "TaxRate",
+      "description": "Patente tax rate schedule versioned by sector and size class"
+    },
+    "/taxRateConfigs/{configId}": {
+      "schema": "TaxRateConfig",
+      "description": "Official tariff schedules configured by Admin"
+    },
+    "/approvalRequests/{requestId}": {
+      "schema": "ApprovalRequest",
+      "description": "Maker-checker approval queue for sensitive actions requiring dual sign-off"
+    }
+  }
+}

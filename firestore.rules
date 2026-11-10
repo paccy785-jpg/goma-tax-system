@@ -1,0 +1,526 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Helper function checking that the requesting user's status field is not 'Suspended'
+    // Requires authentication: unauthenticated requests are denied.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    // The DPRNK and DGI portals each have their own database and their own user
+    // accounts (users/{uid}); the sign-in identities (Firebase Auth) are shared.
+    // A signed-in account with no profile in THIS database is therefore not one
+    // of this portal's officers — it may be an account of the other portal — and
+    // is given no access to the portal's records. (This used to return true for
+    // a profile-less account, as a bootstrap allowance; the profile is now
+    // created before any other read or write, so the allowance is not needed.)
+    function userDocMissing() {
+      return false;
+    }
+    // A signed-in user whose profile doc exists must not carry status 'Suspended'.
+    function userDocActive() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != 'Suspended';
+    }
+    // A profile doc that exists but declares no status at all is treated as active.
+    function userDocNoStatus() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && !('status' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data);
+    }
+
+    // ---- Authorisation by role ----------------------------------------
+    //
+    // Until now every one of these collections granted `write` to any
+    // signed-in, non-suspended user. Nothing in the rules looked at the
+    // caller's role, so all the role checks in the UI were decorative: any
+    // Cashier could rewrite their own users/{uid} document with
+    // role: 'Admin' and become an administrator with a single SDK call.
+    //
+    // `exists()` must be tested BEFORE `get()`: get() on a missing document
+    // throws, and rules `&&` short-circuits, so this order is safe for a
+    // brand-new account that has no profile yet.
+    function callerExists() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function callerRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    // A suspended account holds no authority at all. Without this in the role
+    // helpers, a suspended Supervisor still satisfied isSupervisorOrAdmin() and
+    // could lift their own suspension with one write to their own document.
+    function callerSuspended() {
+      return callerExists()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', null) == 'Suspended';
+    }
+    function isAdmin() {
+      return callerExists() && !callerSuspended() && callerRole() == 'Admin';
+    }
+    function isSupervisorOrAdmin() {
+      return callerExists() && !callerSuspended()
+        && (callerRole() == 'Admin' || callerRole() == 'Supervisor');
+    }
+    // Read access to the roster: any signed-in account that is not suspended.
+    // An account with no profile in this database reads nothing here (except
+    // its own users/{uid}, below).
+    function canReadRoster() {
+      return callerExists() && !callerSuspended();
+    }
+    // Any signed-in account whose profile is missing, status-less or Active.
+    // This is the "may use the portal at all" gate; it says nothing about
+    // whether the caller may perform a *privileged* action.
+    function canUseApp() {
+      return userDocMissing() || userDocNoStatus() || userDocActive();
+    }
+    // True when the update touches no field outside the given allow-list.
+    function onlyChanges(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+    // True when none of the given fields change.
+    function keeps(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Users collection
+    //
+    // Read: any active account (the app renders names and roles everywhere).
+    // Create: bootstrap only — an account may create ITS OWN profile, and only
+    //   as a Cashier. Promotion is a maker-checker decision, never a self-serve
+    //   write.
+    // Update/delete: Supervisors and Admins, because the approval queue lets a
+    //   Supervisor execute an approved Admin promotion. A Cashier or Auditor
+    //   can no longer touch this collection at all.
+    match /users/{userId} {
+      // Its own profile is always readable to an account — that is how the app
+      // learns whether the account has access to this portal at all.
+      allow read: if canReadRoster() || (isSignedIn() && userId == request.auth.uid);
+      // Staff may be added by a Supervisor/Admin, but never directly as an
+      // Admin: that is the maker-checker promotion path's job.
+      allow create: if (isSupervisorOrAdmin() && request.resource.data.role != 'Admin')
+        || (isSignedIn()
+            && userId == request.auth.uid
+            && request.resource.data.role == 'Cashier');
+      // An Administrator may edit any profile.
+      allow update, delete: if isAdmin();
+      // A Supervisor may edit OTHER officers' profiles — that is what executing
+      // an approved promotion or suspension needs — but never their own role.
+      // The blanket `isSupervisorOrAdmin()` let a Supervisor rewrite their own
+      // document to role: 'Admin' and skip the approval queue entirely.
+      allow update: if isSupervisorOrAdmin()
+        && (userId != request.auth.uid
+            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+    }
+
+    // Settings collection (including /settings/rolePermissions)
+    //
+    // rolePermissions decides which modules each role can reach, so letting
+    // every signed-in user write it let any Cashier grant themselves every
+    // module. Configuration is Admin-only.
+    match /settings/{settingId} {
+      allow read: if canReadRoster();
+      allow write: if isAdmin();
+    }
+
+    // Businesses Registry
+    //
+    // The taxpayer register: any active officer may read and file, but erasing a
+    // registered taxpayer destroys the record the assessments and receipts hang
+    // off. Deletion is Admin-only.
+    match /businesses/{businessId} {
+      allow read, create, update: if canUseApp();
+      allow delete: if isAdmin();
+    }
+
+    // Taxpayers Registry
+    match /taxpayers/{taxpayerId} {
+      allow read, create, update: if canUseApp();
+      allow delete: if isAdmin();
+    }
+
+    // Tax Assessments
+    //
+    // An assessment is the basis of a demand: it may be cancelled through the
+    // approval flow (a status change), but deleting one destroys the record of
+    // what was assessed. Deletion is Admin-only.
+    //
+    // A Cashier must be able to update the running balance after taking money,
+    // and nothing else. Without the allow-list below, the same write access also
+    // let a Cashier rewrite `amountDueUSD` (reducing what a taxpayer owes) or set
+    // `status` to 'Cancelled' — cancelling a demand without the maker-checker
+    // approval the UI demands.
+    match /assessments/{assessmentId} {
+      allow read: if canUseApp();
+      allow create: if canUseApp();
+      allow update: if isSupervisorOrAdmin();
+      allow update: if canUseApp()
+        && onlyChanges(['amountPaidUSD', 'remainingBalanceUSD', 'status',
+                        'lastPaymentDate', 'updatedAt'])
+        && request.resource.data.status != 'Cancelled'
+        && keeps(['amountDueUSD', 'assessmentNumber', 'businessId', 'taxpayerId',
+                  'fiscalYear', 'taxTypeCode', 'taxRatePercent']);
+      allow delete: if isAdmin();
+    }
+
+    // Payments & Receipts
+    //
+    // Money received is the fiscal ledger. It must not be silently erasable or
+    // editable by the cashier who took it, so creation is open to active staff
+    // while any later change — the void flow — is a Supervisor/Admin decision.
+    match /payments/{paymentId} {
+      allow read, create: if canUseApp();
+      allow update: if isSupervisorOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Monotonic sequential counters for receipt numbering
+    //
+    // A counter may advance, never be removed — deleting one would let receipt
+    // numbers be reissued.
+    match /counters/{counterId} {
+      allow read: if userDocActive();
+      allow create: if userDocActive();
+      // A counter may only advance. Without this an attacker could SET
+      // currentSequence back down and have the next issuance re-mint a number
+      // that already belongs to an issued receipt / declaration / certificate.
+      allow update: if userDocActive()
+        && request.resource.data.currentSequence is int
+        && request.resource.data.currentSequence > resource.data.currentSequence;
+      allow delete: if false;
+    }
+
+    // Audit Log (Strictly append-only: immutable, write-once, no modification or deletion)
+    //
+    // An entry must be attributed to the account that actually wrote it. Without
+    // this check any signed-in user could file an entry naming a colleague as
+    // the actor, which turns the audit trail into a way to frame someone rather
+    // than a record of what happened.
+    match /auditLog/{logId} {
+      allow read: if canUseApp();
+      allow create: if canUseApp() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if canUseApp();
+      allow create: if canUseApp() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Tax Rate Configurations
+    //
+    // A tariff decides what every taxpayer in a class owes. Changing one is a
+    // supervisory act, not something any signed-in account may do — otherwise a
+    // cashier could set a sector's annual fee to 0 and assess the whole register
+    // at nothing.
+    match /taxRateConfigs/{configId} {
+      allow read: if canUseApp();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // Patente Rate Schedule
+    match /taxRates/{rateId} {
+      allow read: if canUseApp();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // Tax Types — heads of tax levied as a percentage of a declared base
+    // (IF, IRL). Configuration, so it follows the same rule as the rate
+    // schedules above; the Admin-only gate lives in the Settings screen.
+    match /taxTypes/{taxTypeId} {
+      allow read: if canUseApp();
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // Tax type rate versions — the immutable dated trail for a head of tax's
+    // percentage rate, mirroring /taxRates. Versions are closed out with an
+    // end date rather than overwritten, so the trail is append-and-close only.
+    match /taxTypeRateVersions/{versionId} {
+      allow read: if canUseApp();
+      allow create, update: if isSupervisorOrAdmin();
+      allow delete: if false;
+    }
+
+    // Cash Sessions
+    //
+    // A cashier opens and closes their own drawer, so ordinary writes stay open
+    // to active staff. Deleting a session would erase the reconciliation record
+    // behind a shift's cash, so that is Admin-only.
+    match /cashSessions/{sessionId} {
+      allow read, create, update: if canUseApp();
+      allow delete: if isAdmin();
+    }
+
+    // Treasury Deposits
+    //
+    // The deposit record reconciles a closed shift against the treasury. It is
+    // created by the officer handing the cash over and countersigned by a
+    // supervisor, so updates stay open; deletion is Admin-only.
+    match /treasuryDeposits/{depositId} {
+      allow read, create, update: if canUseApp();
+      allow delete: if isAdmin();
+    }
+
+    // Receipt Anomalies
+    //
+    // A gap in the receipt sequence is the evidence that money may be missing.
+    // Any active officer may file one (the sequence scan runs at the counter),
+    // but resolving one is a supervisory judgement — otherwise the cashier whose
+    // receipts are missing could clear their own flag.
+    match /receiptAnomalies/{anomalyId} {
+      allow read, create: if canUseApp();
+      allow update: if isSupervisorOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Approval Requests — the maker-checker queue.
+    //
+    // This collection IS the internal control. Granting `write` to every active
+    // account (the previous rule) made it decorative: a Cashier could file a
+    // request and then set its own `status` to 'Approved' with one SDK call,
+    // performing every privileged action in the system without a reviewer. The
+    // client already refuses to review your own request and to review without a
+    // Supervisor/Admin role; these rules are what actually enforce it.
+    //
+    //   create — the requester files it, as themselves, still Pending.
+    //   update — a Supervisor/Admin who is NOT the requester decides it.
+    //            A requester may only re-write their own request while it is
+    //            still Pending (the idempotent retry path); they can never
+    //            move it to a decided status.
+    //   delete — never. A refused request is evidence.
+    match /approvalRequests/{requestId} {
+      allow read: if canUseApp();
+
+      allow create: if canUseApp()
+        && request.resource.data.requesterId == request.auth.uid
+        && request.resource.data.status == 'Pending';
+
+      // A requester re-writing their own still-Pending request (retry of the
+      // same deterministic id). The status must stay Pending.
+      allow update: if canUseApp()
+        && resource.data.requesterId == request.auth.uid
+        && resource.data.status == 'Pending'
+        && request.resource.data.status == 'Pending';
+
+      // The reviewer's decision. The identity of the maker and the substance of
+      // the request are frozen: a reviewer may record a decision, never rewrite
+      // what is being approved. 'Pending' is allowed because the client returns
+      // a request to Pending when applying an approval fails half-way, so it can
+      // be reviewed again.
+      allow update: if isSupervisorOrAdmin()
+        && resource.data.requesterId != request.auth.uid
+        && keeps(['requesterId', 'requesterName', 'requesterRole', 'requestType',
+                  'entityType', 'entityId', 'entityTitle', 'beforeValue',
+                  'afterValue', 'justification', 'createdAt'])
+        && request.resource.data.status in ['Approved', 'Rejected', 'Pending'];
+
+      allow delete: if false;
+    }
+
+    // Business License Certificates
+    //
+    // Issued automatically when a payment settles an assessment (a Cashier does
+    // this), but revoked only through the approval flow, by the reviewing
+    // Supervisor/Admin. Allowing every active account to update the collection
+    // let a cashier mark their own certificate Revoked — or, worse, rewrite the
+    // identity fields of one already issued.
+    match /certificates/{certificateId} {
+      allow read, create: if canUseApp();
+      allow update: if isSupervisorOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Recurring Expenses & Expense Ledger
+    match /recurringExpenses/{expenseId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    match /expenseRecords/{recordId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Reception Queue
+    match /receptionEntries/{entryId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Announcement Board
+    match /announcements/{postId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Board Meeting Schedule
+    match /scheduleEvents/{eventId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Rang register — cadastral lot numbers offered to every property,
+    // lease and assessment screen that records a rang.
+    match /rangs/{rangId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Usage register — the declared fiscal uses a property may be put to.
+    match /usages/{usageId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Locateurs — lessors who receive rent on declared property.
+    match /lessors/{lessorId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Cadastral register — declared property parcels (impôt foncier evidence).
+    match /propertyParcels/{parcelId} {
+      allow read, write: if userDocMissing();
+      allow read, write: if userDocNoStatus();
+      allow read, write: if userDocActive();
+    }
+
+    // Lease register — tenancies declared against those parcels (IRL evidence).
+    //
+    // Once a lease's période de location and loyer mensuel are saved they are
+    // locked: an update may change other fields, never those terms.
+    function leaseTermsLocked() {
+      return resource.data.get('termsLockedAt', null) != null
+        || (resource.data.get('startDate', null) != null
+            && resource.data.get('monthlyRentUSD', 0) > 0);
+    }
+    function leaseTermsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['startDate', 'endDate', 'monthlyRentUSD', 'termsLockedAt', 'termsLockedByName']);
+    }
+    function canUseLeases() {
+      return userDocMissing() || userDocNoStatus() || userDocActive();
+    }
+    // Calculs d'impôts — saved from the Calcul d'impôts card on the
+    // Declarations page. A saved calculation is final: it can be read and
+    // created, never changed or deleted.
+    match /taxCalculations/{calcId} {
+      allow read: if canUseLeases();
+      // The taux is fixed at 15 %: a calculation saved at any other rate is refused.
+      allow create: if canUseLeases() && request.resource.data.tauxPct == 15;
+      allow update, delete: if false;
+    }
+
+    // Calculs d'impôts Fonciers — final once saved, like the locatif slips.
+    match /foncierCalculations/{calcId} {
+      allow read, create: if canUseLeases();
+      allow update, delete: if false;
+    }
+
+    // Transfers of property ownership — the permanent history of who owned a
+    // property. Final once filed: read and create only.
+    match /propertyTransfers/{transferId} {
+      allow read, create: if canUseLeases();
+      allow update, delete: if false;
+    }
+
+    // Bank Agent confirmations — one per declaration, final once saved.
+    match /bankConfirmations/{confirmationId} {
+      allow read, create: if canUseLeases();
+      allow update, delete: if false;
+    }
+
+    // Bank transfer references — one claim per reference, so a single transfer
+    // can never be acknowledged against two declarations. The claim is taken in
+    // the same transaction as the confirmation, which is what makes it
+    // exclusive: Firestore serialises competing transactions on this document.
+    match /bankReferenceClaims/{claimId} {
+      allow read, create: if canUseLeases();
+      allow update, delete: if false;
+    }
+
+    // Notes de perception — filled in by sections, one per service. The part
+    // "Remplir par le service Taxateur" is final once saved: no later write may
+    // touch it, and a note is never deleted. Sections added later by other
+    // services are new keys beside it.
+    match /notesPerception/{noteId} {
+      allow read, create: if canUseLeases();
+      // The ordonnateur's and the comptable's parts are each written once, then
+      // final, like the taxateur's.
+      allow update: if canUseLeases()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['taxateur', 'createdAt', 'createdByUid', 'createdByName'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ordonnateur'])
+            || !('ordonnateur' in resource.data))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['comptable'])
+            || !('comptable' in resource.data));
+      allow delete: if false;
+    }
+
+    // Numbers of the printed declarations (Impôt foncier / Impôt locatif):
+    // one document per taxpayer + declaration type + exercice fiscal. A
+    // document keeps the number it got the first time it was printed, so it
+    // is write-once and never deleted.
+    match /cpfDocuments/{docId} {
+      allow read: if userDocActive();
+      allow create: if userDocActive()
+        && isValidId(docId)
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^CPF[0-9]{6,}$')
+        && request.resource.data.sequence is int;
+      allow update, delete: if false;
+    }
+
+    // Remote printing on the T6 terminal (see src/services/printService.ts).
+    // A T6 running the "T6 Print Station" app signs in with an officer account
+    // and registers itself here, refreshing lastSeenAt.
+    match /printStations/{stationId} {
+      allow read, create, update: if canUseApp();
+      allow delete: if isAdmin();
+    }
+    // One print job per receipt sent to a T6. Filed by the officer who prints
+    // it, as pending; the T6 then only moves it along (printing → printed, or
+    // failed with the reason). A job is never rewritten or deleted.
+    match /printJobs/{jobId} {
+      allow read: if canUseApp();
+      allow create: if canUseApp()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update: if canUseApp()
+        && onlyChanges(['status', 'claimedAt', 'claimedBy', 'printedAt', 'error'])
+        && request.resource.data.status in ['printing', 'printed', 'failed'];
+      allow delete: if false;
+    }
+
+    // Nomenclatures des Impôts — the reference list of taxes, one document per
+    // article budgétaire. Read, added, corrected and deleted by any active
+    // account, like the other fiscal records (the app shows the Ajouter,
+    // Modifier and Supprimer buttons to administrators and supervisors).
+    match /nomenclaturesImpots/{nomId} {
+      allow read, create, update, delete: if canUseLeases();
+    }
+
+    match /propertyLeases/{leaseId} {
+      // No delete: a lease is the evidence behind an IRL assessment, and the
+      // register's promise is that a filed période de location is permanent.
+      // A wrong filing is corrected by filing the next period, not by erasure.
+      allow read, create: if canUseLeases();
+      allow update: if canUseLeases() && (!leaseTermsLocked() || leaseTermsUnchanged());
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The DPRNK web app's Firebase project (same values as firebase-applet-config.json). -->
+<resources>
+    <string name="firebase_api_key" translatable="false">AIzaSyDyHgHPXRMb_oiDBC-Q-rDGAd8B_ASWfJU</string>
+    <string name="firebase_project_id" translatable="false">gen-lang-client-0693082866</string>
+    <string name="firebase_database_id" translatable="false">goma-tax-system</string>
+</resources>

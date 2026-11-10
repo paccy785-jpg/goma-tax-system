@@ -1,0 +1,26 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Local working data — never part of the source tree.
+# _backup-* holds 35 MB of .bak/.tgz snapshots; _firestore-backup-* is an
+# operational record of deleted documents, not source.
+_backup-*/
+_firestore-backup-*/
+.workbuddy-ai/
+reports/
+
+# Android / Gradle (print station)
+t6-print-station/.gradle/
+t6-print-station/build/
+t6-print-station/app/build/
+t6-print-station/local.properties
+t6-print-station/.idea/
+t6-print-station/captures/
+*.apk
+*.aab
