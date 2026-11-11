@@ -1,3 +1,4 @@
+import { mountPrintAddressFooter, printAddressFooterCss, PRINT_ADDRESS_FOOTER_SPACE_PX } from '../../utils/printAddressFooter';
 /**
  * Print the note de perception — a copy of its sheet (NotePerceptionPrintSheet)
  * on its own portrait page, with nothing else of the app around it. The copy
@@ -38,7 +39,7 @@ export async function printNotePerception(
   // CSS px.
   const mm = (v: number) => Math.floor((v * 96) / 25.4);
   const PAGE_W = mm(186) - 8;
-  const PAGE_H = mm(255) - 16;
+  const PAGE_H = mm(255) - 16 - PRINT_ADDRESS_FOOTER_SPACE_PX;
   const LAYOUT_W = 860;
 
   sheet.id = 'np-print-sheet';
@@ -124,7 +125,7 @@ export async function printNotePerception(
     #np-print-sheet { display: none; }
     @media print {
       html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-      body.print-note-perception > *:not(#np-print-sheet) { display: none !important; }
+      body.print-note-perception > *:not(#np-print-sheet):not(#np-address-footer) { display: none !important; }
       body.print-note-perception #np-print-sheet {
         display: block !important;
         width: ${LAYOUT_W}px !important;
@@ -141,6 +142,8 @@ export async function printNotePerception(
       /* A row of several headings: each line as tall as a single row, top and bottom padding on the lines. */
       body.print-note-perception #np-print-sheet .np-stacked-cell { padding-top: 0 !important; padding-bottom: 0 !important; }
     }`;
+  page.textContent += printAddressFooterCss('np-address-footer');
+  const addressFooter = mountPrintAddressFooter('np-address-footer');
   document.head.appendChild(page);
   document.body.classList.add('print-note-perception');
 
@@ -152,6 +155,7 @@ export async function printNotePerception(
     document.title = prevTitle;
     document.body.classList.remove('print-note-perception');
     sheet.remove();
+    addressFooter.remove();
     page.remove();
     window.removeEventListener('afterprint', done);
   };

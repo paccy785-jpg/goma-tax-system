@@ -1,3 +1,4 @@
+import { mountPrintAddressFooter, printAddressFooterCss, PRINT_ADDRESS_FOOTER_SPACE_PX } from '../utils/printAddressFooter';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, UserRound, Home, Printer } from 'lucide-react';
 import {
@@ -379,7 +380,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
     // 255.4 mm): the smaller of each, in CSS px.
     const mm = (v: number) => Math.floor((v * 96) / 25.4);
     const PAGE_W = mm(186) - 8;
-    const PAGE_H = mm(255) - 16;
+    const PAGE_H = mm(255) - 16 - PRINT_ADDRESS_FOOTER_SPACE_PX;
     const MAX_ZOOM = PAGE_W / MIN_PRINT_LAYOUT_W;
 
     document.getElementById('pp-sheet')?.remove();
@@ -430,7 +431,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       #pp-sheet { display: none; }
       @media print {
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-        body.print-profile > *:not(#pp-sheet) { display: none !important; }
+        body.print-profile > *:not(#pp-sheet):not(#pp-address-footer) { display: none !important; }
         body.print-profile #pp-sheet {
           display: block !important;
           width: ${SHEET_W}px !important;
@@ -440,6 +441,8 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
         }
         body.print-profile #pp-sheet table { width: 100% !important; }
       }`;
+    page.textContent += printAddressFooterCss('pp-address-footer');
+    const addressFooter = mountPrintAddressFooter('pp-address-footer');
     document.head.appendChild(page);
     document.body.classList.add('print-profile');
     // The browser prints the page title in the page header: show CPF there.
@@ -450,6 +453,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       document.title = prevTitle;
       document.body.classList.remove('print-profile');
       sheet.remove();
+      addressFooter.remove();
       page.remove();
       window.removeEventListener('afterprint', done);
     };
