@@ -26,6 +26,12 @@ export function parseAmount(raw: string): number {
   if (!s) return NaN;
   // Both separators present: the last one is the decimal mark.
   if (s.includes(',') && s.includes('.')) {
+    const decimal = s.lastIndexOf(',') > s.lastIndexOf('.') ? ',' : '.';
+    const index = s.lastIndexOf(decimal);
+    const whole = s.slice(0, index);
+    const fraction = s.slice(index + 1);
+    const grouped = decimal === ',' ? /^-?\d{1,3}(?:\.\d{3})+$/ : /^-?\d{1,3}(?:,\d{3})+$/;
+    if (!grouped.test(whole) || !/^\d+$/.test(fraction)) return NaN;
     s = s.lastIndexOf(',') > s.lastIndexOf('.')
       ? s.replace(/\./g, '').replace(',', '.')
       : s.replace(/,/g, '');
@@ -62,7 +68,8 @@ export function parseAmount(raw: string): number {
     }
   }
   if (!/^-?\d*\.?\d*$/.test(s) || s === '.' || s === '-') return NaN;
-  return Number(s);
+  const value = Number(s);
+  return Number.isFinite(value) ? value : NaN;
 }
 
 /** (3) = (1) × (2), the rate being a percentage, rounded to the cent. */

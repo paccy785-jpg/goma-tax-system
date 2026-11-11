@@ -676,7 +676,7 @@ export const DelinquentTaxpayersView: React.FC<DelinquentTaxpayersViewProps> = (
                       </p>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
+                        <table className="premium-table w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b border-slate-200 text-slate-500 font-semibold text-[12px]">
                               <th className="py-2 px-3">Assessment Notice No.</th>

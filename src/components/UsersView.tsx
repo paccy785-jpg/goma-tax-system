@@ -679,7 +679,7 @@ export const UsersView: React.FC = () => {
           {/* Users Table */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                     <th className="py-3 px-4">Officer Name & Contact</th>
@@ -877,7 +877,7 @@ export const UsersView: React.FC = () => {
           {/* Matrix Grid Table */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold text-[12px]">
                     <th className="py-3.5 px-4 w-1/3">System Module / Subsystem</th>

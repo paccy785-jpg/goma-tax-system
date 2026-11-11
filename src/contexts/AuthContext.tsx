@@ -147,7 +147,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Listen to Firebase Auth state
   useEffect(() => {
     let unsubscribeDoc: (() => void) | null = null;
+    let generation = 0;
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      const currentGeneration = ++generation;
+      const isCurrent = () => currentGeneration === generation;
       // Clean up any previous profile listener before (re)subscribing —
       // the return inside this callback does NOT act as an effect cleanup.
       if (unsubscribeDoc) {
@@ -155,6 +158,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeDoc = null;
       }
       setCurrentUser(user);
+      setUserProfileState(null);
+      setBaseRole('Cashier');
+      setPortalAccess(user ? 'checking' : 'granted');
       // A role review override belongs to exactly one signed-in user; drop it
       // whenever the auth identity changes.
       if (!user || user.uid !== overrideUidRef.current) {
@@ -168,6 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // local cache is followed by the server's answer even when it says the
         // same thing (otherwise that second snapshot is not delivered).
         const unsubscribeCurrentDoc = onSnapshot(userDocRef, { includeMetadataChanges: true }, (snap) => {
+          if (!isCurrent()) return;
           const fromCache = snap.metadata.fromCache;
           if (snap.exists()) {
             setPortalAccess('granted');
@@ -191,6 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             // Record the stored role BEFORE the review override is applied.
             setBaseRole(data.role);
+            if (data.role !== 'Admin') roleOverrideRef.current = null;
             // Keep an in-session role review override sticky across doc updates.
             if (roleOverrideRef.current && data.role !== roleOverrideRef.current) {
               data.role = roleOverrideRef.current;
@@ -209,6 +217,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setPortalAccess('checking');
             setUserProfileState(null);
             const refuse = () => {
+              if (!isCurrent()) return;
               setPortalAccess('none');
               setUserProfileState(null);
               try {
@@ -231,6 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // DPRNK: an account that belongs to the DGI portal is not given a
               // DPRNK profile automatically — the two portals' accounts are separate.
               isOtherPortalAccount(user.uid).then((otherPortal) => {
+                if (!isCurrent()) return;
                 if (otherPortal) {
                   refuse();
                   return;
@@ -241,12 +251,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   email: user.email || 'officer@tax.gouv.cd',
                   displayName: user.displayName || 'Tax Officer',
                   role: 'Cashier' as UserRole,
+                  status: 'Active',
                   assignedOffice: PORTAL_DEFAULT_OFFICE,
                   active: true,
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                 };
                 setUserProfile(fallbackProfile).then(() => {
+                  if (!isCurrent()) return;
                   setPortalAccess('granted');
                   setBaseRole(fallbackProfile.role);
                   setUserProfileState(fallbackProfile);
@@ -254,15 +266,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     localStorage.setItem('goma_patente_active_session', JSON.stringify(fallbackProfile));
                   } catch {}
                 }).catch((writeErr) => {
-                  // The Firestore write failed — still grant the local session so a
-                  // signed-in user isn't dumped back on the login screen.
                   console.warn('[Auth] Fallback profile write failed:', writeErr);
-                  setPortalAccess('granted');
-                  setBaseRole(fallbackProfile.role);
-                  setUserProfileState(fallbackProfile);
-                  try {
-                    localStorage.setItem('goma_patente_active_session', JSON.stringify(fallbackProfile));
-                  } catch {}
+                  refuse();
                 });
               });
             }
@@ -270,12 +275,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setInitializing(false);
           setLoading(false);
         }, (err) => {
+          if (!isCurrent()) return;
           console.warn('[Auth] User document snapshot error:', err);
           // Try local storage cache or fallback; always resolve loading so the
           // portal cannot hang on the spinner forever.
           getUserProfile(user.uid).then((p) => {
+            if (!isCurrent()) return;
             if (p) {
               setBaseRole(p.role);
+              if (p.role !== 'Admin') roleOverrideRef.current = null;
               if (roleOverrideRef.current && p.role !== roleOverrideRef.current) {
                 p.role = roleOverrideRef.current;
               }
@@ -289,10 +297,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUserProfileState(null);
             }
           }).catch((profileErr) => {
+            if (!isCurrent()) return;
             console.warn('[Auth] Profile recovery failed:', profileErr);
             setPortalAccess('none');
             setUserProfileState(null);
           }).finally(() => {
+            if (!isCurrent()) return;
             setInitializing(false);
             setLoading(false);
           });
@@ -313,6 +323,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
+      generation++;
       if (unsubscribeDoc) {
         try { unsubscribeDoc(); } catch {}
       }

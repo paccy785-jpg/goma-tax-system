@@ -1,5 +1,6 @@
+import { useRevenueLedger } from '../hooks/useRevenueLedger';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, Clock, Search, X, Wallet, Lock, Landmark } from 'lucide-react';
+import { BadgeCheck, Clock, Search, X, Wallet, Lock, Landmark, PenLine } from 'lucide-react';
 import { natureCode, UserRole } from '../types';
 import { subscribeToTaxCalculations, TaxCalculation, calcPaymentModeLabel } from '../services/taxCalculationService';
 import {
@@ -20,9 +21,10 @@ import { ConfirmPaymentModal, PayableDeclaration } from './bank/ConfirmPaymentMo
 import { NotePerception, subscribeToNotesPerception } from '../services/notePerceptionService';
 import { ComptableTable } from './notePerception/ComptableTable';
 import { PaiementComptableModal } from './notePerception/PaiementComptableModal';
-import { subscribeToBusinesses } from '../services/dbService';
-import { Business } from '../types';
+import { ConfirmNotePaymentModal } from './notePerception/ConfirmNotePaymentModal';
 import { PaymentsView } from './PaymentsView';
+import { RemplirDeclarationModal } from './bank/RemplirDeclarationModal';
+import { DeclarationAdmin, subscribeToDeclarationAdmin } from '../services/declarationAdminService';
 
 /** Subtabs of the Bank Agent page. */
 export type BankSubTab = 'declarations' | 'notes' | 'payments';
@@ -136,95 +138,58 @@ export const BankAgentView: React.FC<{
 }> = ({ userRole, canSeePayments = false, initialSubTab }) => {
   const canConfirm = userRole === 'Admin' || userRole === 'Supervisor' || userRole === 'Cashier';
 
-  const [fonciers, setFonciers] = useState<FoncierCalculation[]>([]);
-  const [locatifs, setLocatifs] = useState<TaxCalculation[]>([]);
-  const [confirmations, setConfirmations] = useState<BankConfirmation[]>([]);
-  const [loaded, setLoaded] = useState({ f: false, l: false, c: false });
+  const [reloadKey, setReloadKey] = useState(0);
+  const { sources, loading, error, cached } = useRevenueLedger(reloadKey);
+  const fonciers = sources.foncierCalculations;
+  const locatifs = sources.taxCalculations;
+  const confirmations = sources.bankConfirmations;
+  const notes = sources.notesPerception.filter((n) => !/^NP-DEMO-/i.test(n.taxateur?.numeroFacture || ''));
+  const notesLoading = loading;
   const [status, setStatus] = useState<StatusFilter>('pending');
   const [q, setQ] = useState('');
   const [active, setActive] = useState<PayableDeclaration | null>(null);
-  const tabs: BankSubTab[] = canSeePayments ? ['declarations', 'notes', 'payments'] : ['declarations', 'notes'];
+  const tabs: BankSubTab[] = canSeePayments
+    ? ['declarations', 'notes', 'payments']
+    : ['declarations', 'notes'];
   const [chosenSubTab, setSubTab] = useState<BankSubTab>(initialSubTab ?? 'declarations');
   const subTab: BankSubTab = tabs.includes(chosenSubTab) ? chosenSubTab : 'declarations';
 
-  // Notes de perception — read only while their subtab is open.
-  const usesNotes = subTab === 'notes';
-  const [notes, setNotes] = useState<NotePerception[]>([]);
-  const [notesLoading, setNotesLoading] = useState(true);
-  useEffect(() => {
-    if (!usesNotes) return;
-    setNotesLoading(true);
-    return subscribeToNotesPerception(
-      (rows) => {
-        setNotes(rows || []);
-        setNotesLoading(false);
-      },
-      () => setNotesLoading(false)
-    );
-  }, [usesNotes]);
-
-  // The payment card — and the taxpayer register its search reads.
+  // The payment card.
   const [payOpen, setPayOpen] = useState(false);
+  const [remplirOpen, setRemplirOpen] = useState(false);
+  /** The declaration whose row's "Remplir la déclaration" opened the card. */
+  const [remplirId, setRemplirId] = useState<string | null>(null);
+  const openRemplir = (id: string | null) => {
+    setRemplirId(id);
+    setRemplirOpen(true);
+  };
+  // "Réservé à l'administration" filled in by the accountant — a declaration's
+  // payment is confirmed only once it is filled.
+  const [admins, setAdmins] = useState<DeclarationAdmin[]>([]);
+  useEffect(() => subscribeToDeclarationAdmin((d) => setAdmins(d || [])), []);
+  const filledIds = useMemo(() => new Set(admins.map((a) => a.id)), [admins]);
   /** The note whose row's "Remplir" opened the card (none: the header button). */
   const [payNoteId, setPayNoteId] = useState<string | null>(null);
   const closePay = useCallback(() => {
     setPayOpen(false);
     setPayNoteId(null);
   }, []);
-  const [taxpayers, setTaxpayers] = useState<Business[]>([]);
-  useEffect(() => {
-    if (!usesNotes || !canConfirm) return;
-    return subscribeToBusinesses(
-      (d) =>
-        setTaxpayers(
-          (d || []).slice().sort((a, b) => (a.businessName || '').localeCompare(b.businessName || ''))
-        ),
-      undefined,
-      1000
-    );
-  }, [usesNotes, canConfirm]);
   const close = useCallback(() => setActive(null), []);
 
-  useEffect(
-    () =>
-      subscribeToFoncierCalculations(
-        (d) => {
-          setFonciers(d || []);
-          setLoaded((x) => ({ ...x, f: true }));
-        },
-        () => setLoaded((x) => ({ ...x, f: true }))
-      ),
-    []
-  );
-  useEffect(
-    () =>
-      subscribeToTaxCalculations(
-        (d) => {
-          setLocatifs(d || []);
-          setLoaded((x) => ({ ...x, l: true }));
-        },
-        () => setLoaded((x) => ({ ...x, l: true }))
-      ),
-    []
-  );
-  useEffect(
-    () =>
-      subscribeToBankConfirmations(
-        (d) => {
-          setConfirmations(d || []);
-          setLoaded((x) => ({ ...x, c: true }));
-        },
-        () => setLoaded((x) => ({ ...x, c: true }))
-      ),
-    []
-  );
-  const loading = !(loaded.f && loaded.l && loaded.c);
-
   const confirmedById = useMemo(() => new Map(confirmations.map((c) => [c.id, c])), [confirmations]);
+  // One bank reference pays one thing — a declaration or a note de perception.
   const usedReferences = useMemo(
-    () => new Set(confirmations.map((c) => normalizeReference(c.reference))),
-    [confirmations]
+    () =>
+      new Set([
+        ...confirmations.map((c) => normalizeReference(c.reference)),
+        ...notes.filter((n) => n.confirmation).map((n) => normalizeReference(n.confirmation!.reference)),
+      ]),
+    [confirmations, notes]
   );
+  /** The note whose "Confirmer le paiement" is open — read live from the list. */
+  const [confirmNoteId, setConfirmNoteId] = useState<string | null>(null);
+  const confirmNote = confirmNoteId ? notes.find((n) => n.id === confirmNoteId) || null : null;
+  const closeConfirmNote = useCallback(() => setConfirmNoteId(null), []);
 
   /** Every declaration from both subtabs, newest first, with its payment state. */
   const rows = useMemo(() => {
@@ -234,11 +199,14 @@ export const BankAgentView: React.FC<{
     return all.map((d) => {
       const confirmation = confirmedById.get(confirmationId(d.kind, d.calculationId));
       const state: 'paid' | 'pending' | 'none' = confirmation ? 'paid' : d.amountUSD > 0 ? 'pending' : 'none';
-      return { d, confirmation, state };
+      const filled = filledIds.has(confirmationId(d.kind, d.calculationId));
+      return { d, confirmation, state, filled };
     });
-  }, [fonciers, locatifs, confirmedById]);
+  }, [fonciers, locatifs, confirmedById, filledIds]);
 
   const pending = rows.filter((r) => r.state === 'pending');
+  /** Pending declarations the accountant has not filled in yet. */
+  const toFill = useMemo(() => pending.filter((r) => !r.filled).map((r) => r.d), [pending]);
   const paid = rows.filter((r) => r.state === 'paid');
   const sum = (list: typeof rows) =>
     Math.round(list.reduce((s, r) => s + (r.confirmation?.amountUSD ?? r.d.amountUSD), 0) * 100) / 100;
@@ -262,8 +230,14 @@ export const BankAgentView: React.FC<{
     { id: 'all', label: 'Toutes les déclarations', count: rows.length },
   ];
 
+  if (loading || error) return <div role="status" className="space-y-4">
+    <p>{error || 'Chargement du registre complet…'}</p>
+    {error && <Button onClick={() => setReloadKey((k) => k + 1)}>Réessayer</Button>}
+  </div>;
+
   return (
     <>
+      {cached && <p role="status" className="mb-4">Données locales non confirmées : les totaux peuvent être incomplets.</p>}
       <div className="mb-6">
         <BankSubTabs active={subTab} onChange={setSubTab} tabs={tabs} />
       </div>
@@ -291,7 +265,11 @@ export const BankAgentView: React.FC<{
                   }
                 : undefined
             }
+            onConfirm={canConfirm ? (n) => setConfirmNoteId(n.id) : undefined}
           />
+          {canConfirm && (
+            <ConfirmNotePaymentModal note={confirmNote} usedReferences={usedReferences} onClose={closeConfirmNote} />
+          )}
           {!canConfirm && (
             <p className="text-[12px] text-faint mt-4">Votre rôle consulte les paiements en lecture seule.</p>
           )}
@@ -300,7 +278,6 @@ export const BankAgentView: React.FC<{
               isOpen={payOpen}
               onClose={closePay}
               notes={notes}
-              taxpayers={taxpayers}
               initialNoteId={payNoteId}
             />
           )}
@@ -409,7 +386,7 @@ export const BankAgentView: React.FC<{
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse font-sans">
+            <table className="premium-table w-full table-fixed text-left border-collapse font-sans">
               <thead>
                 <tr className="border-b border-line bg-surface2/50">
                   {HEADERS.map((h, i) => (
@@ -426,7 +403,7 @@ export const BankAgentView: React.FC<{
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {shown.map(({ d, confirmation, state }) => (
+                {shown.map(({ d, confirmation, state, filled }) => (
                   <tr key={`${d.kind}_${d.calculationId}`} className="hover:bg-surface2/30 transition-premium align-middle">
                     <td className={`${pad(0, 6)} py-3.5`}>
                       <div className="text-xs font-semibold text-ink truncate" title={d.contribuableName}>
@@ -482,6 +459,17 @@ export const BankAgentView: React.FC<{
                         </div>
                       ) : state === 'none' ? (
                         <span className="text-[12px] text-muted italic">Rien à payer (trop-perçu)</span>
+                      ) : canConfirm && !filled ? (
+                        // The accountant fills in "Réservé à l'administration"
+                        // first; only then can the payment be confirmed.
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={<PenLine className="w-3.5 h-3.5" />}
+                          onClick={() => openRemplir(confirmationId(d.kind, d.calculationId))}
+                        >
+                          Remplir la déclaration
+                        </Button>
                       ) : canConfirm ? (
                         <Button
                           variant="primary"
@@ -516,8 +504,16 @@ export const BankAgentView: React.FC<{
         item={active}
         usedReferences={usedReferences}
         onClose={close}
-        onConfirmed={(c) => setConfirmations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]))}
+        onConfirmed={() => setActive(null)}
       />
+      {remplirOpen && (
+        <RemplirDeclarationModal
+          declarations={toFill}
+          initialId={remplirId}
+          onClose={() => setRemplirOpen(false)}
+          onSaved={(r) => setAdmins((prev) => (prev.some((x) => x.id === r.id) ? prev : [...prev, r]))}
+        />
+      )}
     </>
   );
 };

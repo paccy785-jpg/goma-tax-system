@@ -18,6 +18,23 @@ export function currentCycleLabel(now: Date = new Date()): string {
   return `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
 }
 
+/** Keep past disbursements as history; a new cycle starts with unpaid salaries. */
+export function rollPayrollCycle<T extends { status: 'ready' | 'paid'; paidAt?: string; paymentMethod?: string; reference?: string }, A>(
+  state: { cycle: string; employees: T[]; advances: A[]; history?: { cycle: string; employees: T[] }[] },
+  now: Date = new Date()
+) {
+  const cycle = currentCycleLabel(now);
+  if (state.cycle === cycle) return { ...state, advances: state.advances || [] };
+  return {
+    ...state, cycle, advances: state.advances || [],
+    history: [...(state.history || []), { cycle: state.cycle, employees: state.employees.map((e) => ({ ...e })) }],
+    employees: state.employees.map((e) => {
+      const { paidAt, paymentMethod, reference, ...identity } = e;
+      return { ...identity, status: 'ready' } as T;
+    }),
+  };
+}
+
 /**
  * The next payday: the last day of the month, once today has reached it.
  *

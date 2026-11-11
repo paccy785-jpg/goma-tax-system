@@ -44,12 +44,12 @@ export const PROPERTY_LEASES_COLLECTION = 'propertyLeases';
 export function subscribeToLeases(
   onData: (leases: RentalLease[]) => void,
   onError?: (err: unknown) => void,
-  limitCount = 200
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, PROPERTY_LEASES_COLLECTION),
     orderBy(documentId(), 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   return onSnapshot(
     q,

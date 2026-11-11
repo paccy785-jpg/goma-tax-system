@@ -1,39 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Settings, 
-  ShieldCheck, 
-  DollarSign, 
-  Save, 
-  UserPlus, 
-  AlertCircle, 
-  CheckCircle2, 
+import React, { useState } from 'react';
+import {
+  CheckCircle2,
   Database,
   Lock,
-  Landmark,
-  Wifi,
-  Scale,
   Ruler,
   MapPin,
   Shapes,
   BookOpenText
 } from 'lucide-react';
 import { ACTIVE_DATABASE_ID } from '../firebase/config';
-import { TaxRateConfig } from '../types';
-import { 
-  getTaxRateConfigs, 
-  updateTaxRate, 
-  logAuditEvent 
-} from '../services/dbService';
 import { useAuth } from '../contexts/AuthContext';
-import { PatenteRateScheduleView } from './PatenteRateScheduleView';
 import { RangRegistryView } from './settings/RangRegistryView';
 import { AddressHierarchyView } from './settings/AddressHierarchyView';
 import { UsageRegistryView } from './settings/UsageRegistryView';
 import { NomenclaturesImpotsView } from './NomenclaturesImpotsView';
-import { PageHeader, Button, Badge, Panel, MetricStrip } from './ui';
-import { formatMoney } from '../utils/money';
+import { PageHeader } from './ui';
 
-export type SettingsTab = 'tariffs' | 'rangs' | 'adresses' | 'usages' | 'nomenclatures' | 'system';
+export type SettingsTab = 'rangs' | 'adresses' | 'usages' | 'nomenclatures' | 'system';
 
 interface SettingsViewProps {
   /**
@@ -47,83 +30,17 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ tabs, title, description }) => {
-  const { userProfile, userRole } = useAuth();
-  const [rates, setRates] = useState<TaxRateConfig[]>([]);
+  const { userRole } = useAuth();
   const shows = (tab: SettingsTab) => !tabs || tabs.includes(tab);
-  const [chosenTab, setActiveTab] = useState<SettingsTab>(tabs?.[0] ?? 'tariffs');
-  const activeTab: SettingsTab = shows(chosenTab) ? chosenTab : tabs?.[0] ?? 'tariffs';
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
-  const saveMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (saveMsgTimerRef.current) clearTimeout(saveMsgTimerRef.current);
-  }, []);
-
-  // Editable rates state
-  const [editableRates, setEditableRates] = useState<Record<string, { usd: number }>>({});
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      const rateData = await getTaxRateConfigs();
-      setRates(rateData || []);
-      const initialMap: Record<string, { usd: number }> = {};
-      rateData.forEach((r) => {
-        initialMap[r.id] = { usd: r.annualRateUSD };
-      });
-      setEditableRates(initialMap);
-    } catch (err) {
-      console.warn('[Settings] Load error:', err);
-    }
-  };
-
-  const handleSaveRate = async (rate: TaxRateConfig) => {
-    const editValues = editableRates[rate.id];
-    if (!editValues) return;
-    setSavingId(rate.id);
-    try {
-      const updated: TaxRateConfig = {
-        ...rate,
-        annualRateUSD: editValues.usd,
-        updatedBy: userProfile?.displayName || 'Admin Officer',
-        updatedAt: new Date().toISOString(),
-      };
-      await updateTaxRate(updated);
-
-      if (userProfile) {
-        await logAuditEvent(
-          userProfile.uid,
-          userProfile.displayName,
-          userProfile.role,
-          'UPDATE_TAX_RATE',
-          'TaxRateConfig',
-          rate.id,
-          `Modified Patente rate for ${rate.category} to ${formatMoney(updated.annualRateUSD)}.`
-        );
-      }
-
-      setRates((prev) => prev.map((r) => (r.id === rate.id ? updated : r)));
-      setSaveSuccessMsg(`Rate updated successfully for ${rate.category.replace('Category_', '')}.`);
-      // Tracked timer: the bare setTimeout fired setSaveSuccessMsg after unmount.
-      if (saveMsgTimerRef.current) clearTimeout(saveMsgTimerRef.current);
-      saveMsgTimerRef.current = setTimeout(() => setSaveSuccessMsg(null), 3000);
-    } catch (err) {
-      console.error('[Save Rate] Error:', err);
-    } finally {
-      setSavingId(null);
-    }
-  };
-
+  const [chosenTab, setActiveTab] = useState<SettingsTab>(tabs?.[0] ?? 'rangs');
+  const activeTab: SettingsTab = shows(chosenTab) ? chosenTab : tabs?.[0] ?? 'rangs';
   if (userRole !== 'Admin') {
     return (
       <div className="p-8 bg-white rounded-xl border border-slate-200 text-center space-y-3">
         <Lock className="w-10 h-10 text-red-500 mx-auto" />
         <h3 className="text-base font-bold text-slate-900">Access Restricted</h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          The Settings module is reserved exclusively for the <strong>Admin</strong> role to configure tax rate schedules.
+          The Settings module is reserved exclusively for the <strong>Admin</strong> role.
         </p>
       </div>
     );
@@ -136,33 +53,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ tabs, title, descrip
       <PageHeader
         eyebrow="Governance"
         title={title ?? "System Administration & Tariff Rates"}
-        description={description ?? "Configure DPRNK Business License Tax rates, official tariff rates, the cadastral rang register and the address hierarchy."}
-        actions={
-          saveSuccessMsg ? (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-sage/15 text-sage border border-sage/30 text-xs font-semibold">
-              <CheckCircle2 className="w-4 h-4 text-sage" />
-              {saveSuccessMsg}
-            </div>
-          ) : undefined
-        }
+        description={description ?? "Configure the cadastral rang register, the usages, the address hierarchy and the tax nomenclatures."}
       />
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-line pb-2">
-        {shows('tariffs') && <button
-          id="tab-tariffs-btn"
-          type="button"
-          onClick={() => setActiveTab('tariffs')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-[10px] text-xs font-semibold transition-premium cursor-pointer ${
-            activeTab === 'tariffs'
-              ? 'bg-accent text-white shadow-xs font-bold'
-              : 'text-muted hover:text-ink hover:bg-surface2'
-          }`}
-        >
-          <Scale className="w-4 h-4" />
-          Tax Rate Schedule
-        </button>}
-
         {shows('rangs') && <button
           id="tab-rangs-btn"
           type="button"
@@ -233,11 +128,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ tabs, title, descrip
           Offline Persistence & Firestore
         </button>}
       </div>
-
-      {/* TAB 1: TAX RATE SCHEDULE (PHASE 3 PATENTE SCHEDULE) */}
-      {activeTab === 'tariffs' && (
-        <PatenteRateScheduleView userRole={userRole} />
-      )}
 
       {/* TAB 2: RANG REGISTER — cadastral lot numbers used across the system */}
       {activeTab === 'rangs' && <RangRegistryView />}

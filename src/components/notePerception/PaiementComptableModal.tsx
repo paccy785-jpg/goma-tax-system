@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Landmark, X, Loader2, Lock, RotateCcw, ScrollText, UserRound, Wallet, CalendarDays } from 'lucide-react';
+import { Landmark, X, Loader2, Lock, RotateCcw, UserRound, Wallet, CalendarDays } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import {
@@ -15,9 +15,7 @@ import {
 } from '../../services/notePerceptionService';
 import { formatMoney } from '../../utils/money';
 import { todayDateString } from '../../utils/date';
-import { Business } from '../../types';
 import { Button } from '../ui';
-import { TaxpayerSearch } from '../transfer/TaxpayerSearch';
 
 const fieldClass =
   'w-full px-3 py-2.5 text-sm rounded-[10px] border bg-surface text-ink placeholder:text-faint focus:border-accent focus:outline-none transition-premium font-sans';
@@ -77,8 +75,15 @@ const DateField: React.FC<
 
 const BAD_DATE = "Date invalide — ce jour n'existe pas dans le calendrier (ex. 31/04).";
 
+/** The redevable a note was issued to. */
+const redevableOf = (n: NotePerception) =>
+  (n.taxateur?.contribuableName || n.ordonnateur?.contribuableName || '').trim() || 'Contribuable non renseigné';
+
+/** One line of the Contribuable dropdown: who pays, which note, how much. */
 const noteLabel = (n: NotePerception) =>
-  `${n.taxateur.numeroFacture} — ${formatMoney(n.taxateur.montantUSD ?? 0)} — taxée le ${frDay(dateTaxationOf(n))}`;
+  `${redevableOf(n)} — ${n.taxateur.numeroFacture} — ${formatMoney(n.taxateur.montantUSD ?? 0)} — taxée le ${frDay(
+    dateTaxationOf(n)
+  )}`;
 
 /**
  * The bureau comptable's card: record the payment of a note de perception.
@@ -88,11 +93,9 @@ export const PaiementComptableModal: React.FC<{
   onClose: () => void;
   /** Every note de perception; only those not yet paid can be picked. */
   notes: NotePerception[];
-  /** The taxpayer register, searched at the top of the card. */
-  taxpayers: Business[];
   /** Open the card on this note (its row's "Remplir" button in the list). */
   initialNoteId?: string | null;
-}> = ({ isOpen, onClose, notes, taxpayers, initialNoteId }) => {
+}> = ({ isOpen, onClose, notes, initialNoteId }) => {
   const { userProfile } = useAuth();
   const { showToast } = useToast();
   const today = todayDateString();
@@ -104,7 +107,6 @@ export const PaiementComptableModal: React.FC<{
     [notes]
   );
 
-  const [contribuable, setContribuable] = useState<Business | null>(null);
   const [noteId, setNoteId] = useState('');
   const [bureau, setBureau] = useState('');
   const [mode, setMode] = useState<NotePerceptionPaymentModeId | ''>('');
@@ -119,14 +121,10 @@ export const PaiementComptableModal: React.FC<{
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Opened from a row of the list: that note, and its taxpayer, are picked.
+  // Opened from a row of the list: that note is picked.
   useEffect(() => {
     if (!isOpen || !initialNoteId) return;
-    const n = notes.find((x) => x.id === initialNoteId);
-    if (!n) return;
-    const tp = taxpayers.find((t) => t.id === n.taxateur?.contribuableId) || null;
-    setContribuable(tp);
-    setNoteId(n.id);
+    if (notes.some((x) => x.id === initialNoteId)) setNoteId(initialNoteId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialNoteId]);
 
@@ -142,23 +140,6 @@ export const PaiementComptableModal: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose, saving]);
 
-  /** Once a taxpayer is chosen: their notes, and apart, older notes saved without one. */
-  const forTaxpayer = useMemo(
-    () => (contribuable ? payable.filter((n) => n.taxateur.contribuableId === contribuable.id) : payable),
-    [payable, contribuable]
-  );
-  const unattributed = useMemo(
-    () => (contribuable ? payable.filter((n) => !n.taxateur.contribuableId) : []),
-    [payable, contribuable]
-  );
-
-  // A different taxpayer drops a note that belongs to someone else.
-  useEffect(() => {
-    if (!contribuable || !noteId) return;
-    const n = payable.find((x) => x.id === noteId);
-    if (n?.taxateur.contribuableId && n.taxateur.contribuableId !== contribuable.id) setNoteId('');
-  }, [contribuable, noteId, payable]);
-
   const note = payable.find((n) => n.id === noteId) || null;
   const modeInfo = mode ? notePerceptionPaymentMode(mode) : undefined;
   const numbered = !!modeInfo?.numbered;
@@ -169,8 +150,7 @@ export const PaiementComptableModal: React.FC<{
 
   const errors = useMemo(
     () => ({
-      contribuable: !contribuable ? 'Sélectionnez le contribuable.' : '',
-      note: !note ? 'Sélectionnez la note de perception à payer.' : '',
+      note: !note ? 'Sélectionnez le contribuable et sa note de perception.' : '',
       bureau: !bureau.trim() ? 'Saisissez le code ou la désignation du bureau comptable.' : '',
       mode: !mode
         ? 'Sélectionnez le mode de paiement.'
@@ -203,7 +183,7 @@ export const PaiementComptableModal: React.FC<{
               ? 'La date du paiement ne peut pas précéder la date de taxation.'
               : '',
     }),
-    [contribuable, note, bureau, mode, numbered, modeNumero, needsBank, modeBanque, chequeDate, chequeDateBad, quittance, usedQuittances, nom, date, dateBad, today, dateTaxation]
+    [note, bureau, mode, numbered, modeNumero, needsBank, modeBanque, chequeDate, chequeDateBad, quittance, usedQuittances, nom, date, dateBad, today, dateTaxation]
   );
   const valid = Object.values(errors).every((e) => !e);
   const err = (k: keyof typeof errors) => (showErrors ? errors[k] : '');
@@ -212,7 +192,6 @@ export const PaiementComptableModal: React.FC<{
   if (!isOpen) return null;
 
   const reset = () => {
-    setContribuable(null);
     setNoteId('');
     setBureau('');
     setMode('');
@@ -265,13 +244,6 @@ export const PaiementComptableModal: React.FC<{
     }
   };
 
-  const options = (list: NotePerception[]) =>
-    list.map((n) => (
-      <option key={n.id} value={n.id}>
-        {noteLabel(n)}
-      </option>
-    ));
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
@@ -309,32 +281,15 @@ export const PaiementComptableModal: React.FC<{
 
         {/* Body */}
         <div className="p-6 space-y-5 overflow-y-auto">
-          {/* ---- Taxpayer ---- */}
+          {/* ---- Contribuable: the notes filled in by the taxateur and
+               ordonnancées by the ordonnateur, not yet paid ---- */}
           <div className="grid grid-cols-[28px_1fr] gap-3 items-start">
             <span className="mt-0.5 w-7 h-7 rounded-[8px] bg-accent-soft text-accent flex items-center justify-center">
               <UserRound className="w-3.5 h-3.5" />
             </span>
-            <TaxpayerSearch
-              id="pc-contribuable"
-              label="Contribuable"
-              hint="Le contribuable qui paie — recherché dans le registre des contribuables."
-              taxpayers={taxpayers}
-              value={contribuable}
-              onChange={setContribuable}
-              disabled={saving}
-              autoFocus
-              error={err('contribuable')}
-            />
-          </div>
-
-          {/* ---- The note being paid ---- */}
-          <div className="grid grid-cols-[28px_1fr] gap-3 items-start">
-            <span className="mt-0.5 w-7 h-7 rounded-[8px] bg-accent-soft text-accent flex items-center justify-center">
-              <ScrollText className="w-3.5 h-3.5" />
-            </span>
             <div className="space-y-1.5 min-w-0">
               <label htmlFor="pc-note" className="text-xs font-semibold text-ink">
-                Note de perception
+                Contribuable
               </label>
               {payable.length === 0 ? (
                 <p className="p-3 rounded-[10px] bg-warn/10 border border-warn/25 text-[12px] text-ink leading-relaxed">
@@ -345,42 +300,24 @@ export const PaiementComptableModal: React.FC<{
                 <select
                   id="pc-note"
                   value={noteId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setNoteId(id);
-                    // Picking a note first fills in the taxpayer it was issued to.
-                    const tpId = payable.find((x) => x.id === id)?.taxateur.contribuableId;
-                    if (!contribuable && tpId) {
-                      const tp = taxpayers.find((t) => t.id === tpId);
-                      if (tp) setContribuable(tp);
-                    }
-                  }}
+                  onChange={(e) => setNoteId(e.target.value)}
                   disabled={saving}
+                  autoFocus
                   className={`${fieldClass} ${border('note')} cursor-pointer`}
                 >
-                  <option value="">Sélectionner la note de perception…</option>
-                  {!contribuable ? (
-                    options(payable)
-                  ) : (
-                    <>
-                      {forTaxpayer.length > 0 && (
-                        <optgroup label={`Contribuable : ${contribuable.businessName}`}>{options(forTaxpayer)}</optgroup>
-                      )}
-                      {unattributed.length > 0 && (
-                        <optgroup label="Notes sans contribuable enregistré">{options(unattributed)}</optgroup>
-                      )}
-                    </>
-                  )}
+                  <option value="">— Sélectionner —</option>
+                  {payable.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {noteLabel(n)}
+                    </option>
+                  ))}
                 </select>
-              )}
-              {contribuable && payable.length > 0 && forTaxpayer.length === 0 && unattributed.length === 0 && (
-                <p className="text-[12px] text-muted">
-                  Aucune note de perception de {contribuable.businessName} n'attend de paiement.
-                </p>
               )}
               {err('note') && payable.length > 0 && <p className="text-[12px] text-danger">{err('note')}</p>}
               {note && (
                 <div className="rounded-[10px] bg-surface2/60 border border-line px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+                  <span className="text-muted">Note de perception</span>
+                  <span className="text-ink font-mono text-right truncate">{note.taxateur.numeroFacture}</span>
                   <span className="text-muted">Article budgétaire</span>
                   <span className="text-ink font-mono text-right truncate">{note.taxateur.articleBudgetaire}</span>
                   <span className="text-muted">Montant taxé</span>

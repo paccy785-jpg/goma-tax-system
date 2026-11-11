@@ -237,7 +237,7 @@ export const UsageRegistryView: React.FC = () => {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="premium-table w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface2/60 border-b border-line">
                   <th className="px-6 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-muted w-[150px]">

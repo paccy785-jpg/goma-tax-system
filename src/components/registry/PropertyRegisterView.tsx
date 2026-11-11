@@ -68,7 +68,7 @@ import {
   logAuditEvent,} from '../../services/dbService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Button, Badge, Panel, EmptyState } from '../ui';
+import { Button, Badge, Panel, EmptyState, MetricStrip } from '../ui';
 import { formatMoney } from '../../utils/money';
 
 interface PropertyRegisterViewProps {
@@ -174,6 +174,8 @@ export const PropertyRegisterView: React.FC<PropertyRegisterViewProps> = ({ user
   const { userProfile } = useAuth();
   const { showToast } = useToast();
   const [parcels, setParcels] = useState<PropertyParcel[]>([]);
+  const [parcelsLoading, setParcelsLoading] = useState(true);
+  const [parcelsError, setParcelsError] = useState(false);
   const isWide = useMediaQuery(WIDE_QUERY);
   const [searchQuery, setSearchQuery] = useState('');
   const [communeFilter, setCommuneFilter] = useState('ALL');
@@ -238,9 +240,15 @@ export const PropertyRegisterView: React.FC<PropertyRegisterViewProps> = ({ user
     // revenue system must never reach.
     const unsubParcels = subscribeToParcels(
       (data) => {
-        if (!cancelled) setParcels(data || []);
+        if (!cancelled) {
+          setParcels(data || []);
+          setParcelsLoading(false);
+        }
       },
-      (err) => console.warn('[Cadastre] Parcels listener error:', err)
+      (err) => {
+        if (!cancelled) { setParcelsError(true); setParcelsLoading(false); }
+        console.warn('[Cadastre] Parcels listener error:', err);
+      }
     );
 
     return () => {
@@ -561,6 +569,17 @@ export const PropertyRegisterView: React.FC<PropertyRegisterViewProps> = ({ user
         )}
       </div>
 
+      <MetricStrip
+        columns={1}
+        items={[{
+          label: 'Registered Properties',
+          value: parcelsLoading ? '…' : parcelsError ? '—' : parcels.length.toLocaleString('fr-FR'),
+          subline: parcelsError ? 'Unable to load property count' : 'Complete property register',
+          trendType: 'muted',
+          icon: <Building2 className="w-4 h-4" />,
+        }]}
+      />
+
       <Panel
         subtitle={`Displaying ${filtered.length} of ${parcels.length} registered properties`}
         padding="none"
@@ -636,7 +655,7 @@ export const PropertyRegisterView: React.FC<PropertyRegisterViewProps> = ({ user
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[640px] table-fixed text-left border-collapse font-sans">
+            <table className="premium-table w-full min-w-[640px] table-fixed text-left border-collapse font-sans">
               <thead>
                 <tr className="border-b-2 border-line bg-surface2/60">
                   {visibleColumns.map((col) => (

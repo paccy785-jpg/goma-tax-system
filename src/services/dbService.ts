@@ -43,6 +43,8 @@ import {
 import { daysBetweenDates, localDateFromIsoTimestamp, shiftDateString, todayDateString } from '../utils/date';
 import { formatMoney } from '../utils/money';
 import { roundMoney } from '../utils/frenchNumber';
+import { paymentBalances, requireMoney } from '../utils/paymentAmounts';
+import { hasCashVariance } from '../utils/cashVariance';
 import { INTENT_BUCKET_MS, intentId, isFirstIntent } from './idempotency';
 
 // USERS
@@ -640,6 +642,7 @@ export async function getBusinesses(): Promise<Business[]> {
       }
       return {
         ...data,
+        id: d.id,
         activitySector: normalizeSector(data.activitySector),
         sizeClass: normalizeSizeClass(data.sizeClass),
         status: normalizedStatus,
@@ -658,14 +661,14 @@ export async function getBusinesses(): Promise<Business[]> {
 export function subscribeToBusinesses(
   onData: (businesses: Business[]) => void,
   onError?: (err: any) => void,
-  limitCount: number = 100
+  limitCount: number | null = null
 ): Unsubscribe {
   console.log(`[Firestore Listener] Subscribed to businesses (limit: ${limitCount})`);
   // Order by document id (descending) so the limit window returns the newest
   // registrations rather than an arbitrary/lowest-id subset. Without an explicit
   // orderBy, Firestore returned the LOWEST ids and every business past the 100th
   // silently vanished from the registry.
-  const q = query(collection(db, 'businesses'), orderBy(documentId(), 'desc'), limit(limitCount));
+  const q = query(collection(db, 'businesses'), orderBy(documentId(), 'desc'), ...(limitCount === null ? [] : [limit(limitCount)]));
 
   const unsubscribe = onSnapshot(
     q,
@@ -682,6 +685,7 @@ export function subscribeToBusinesses(
         }
         return {
           ...data,
+          id: d.id,
           activitySector: normalizeSector(data.activitySector),
           sizeClass: normalizeSizeClass(data.sizeClass),
           status: normalizedStatus,
@@ -721,6 +725,7 @@ export async function getBusinessById(businessId: string): Promise<Business | nu
       const data = snap.data() as any;
       return {
         ...data,
+        id: snap.id,
         activitySector: normalizeSector(data.activitySector),
         sizeClass: normalizeSizeClass(data.sizeClass),
         status: normalizeBusinessStatus(data.status),
@@ -1093,6 +1098,7 @@ export async function getAssessments(): Promise<Assessment[]> {
       const data = d.data() as any;
       return {
         ...data,
+        id: d.id,
         activitySector: normalizeSector(data.activitySector),
         sizeClass: normalizeSizeClass(data.sizeClass),
         status: normalizeAssessmentStatus(data.status),
@@ -1113,7 +1119,7 @@ export async function getAssessments(): Promise<Assessment[]> {
 export function subscribeToAssessments(
   onData: (assessments: Assessment[]) => void,
   onError?: (err: any) => void,
-  limitCount: number = 100
+  limitCount: number | null = null
 ): Unsubscribe {
   console.log(`[Firestore Listener] Subscribed to assessments (limit: ${limitCount})`);
   // Order by document id (descending): assessment ids are ass_<timestamp>_<rand>,
@@ -1122,7 +1128,7 @@ export function subscribeToAssessments(
   // computed from an arbitrary subset (duplicate PAT-YYYY sequences possible),
   // and the ledger silently hid older rows. Ordering by id never drops a
   // document the way orderBy on a data field would.
-  const q = query(collection(db, 'assessments'), orderBy(documentId(), 'desc'), limit(limitCount));
+  const q = query(collection(db, 'assessments'), orderBy(documentId(), 'desc'), ...(limitCount === null ? [] : [limit(limitCount)]));
 
   const unsubscribe = onSnapshot(
     q,
@@ -1131,6 +1137,7 @@ export function subscribeToAssessments(
         const data = d.data() as any;
         return {
           ...data,
+          id: d.id,
           activitySector: normalizeSector(data.activitySector),
           sizeClass: normalizeSizeClass(data.sizeClass),
           status: normalizeAssessmentStatus(data.status),
@@ -1395,7 +1402,7 @@ export async function getPayments(): Promise<Payment[]> {
   const path = 'payments';
   try {
     const snapshot = await getDocs(collection(db, 'payments'));
-    const result = snapshot.docs.map((d) => d.data() as Payment);
+    const result = snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Payment));
     // Sort descending by sequenceNumber or paidAt
     result.sort((a, b) => {
       if (a.sequenceNumber && b.sequenceNumber) return b.sequenceNumber - a.sequenceNumber;
@@ -1416,7 +1423,7 @@ export async function getPayments(): Promise<Payment[]> {
 export function subscribeToPayments(
   onData: (payments: Payment[]) => void,
   onError?: (err: any) => void,
-  limitCount: number = 100
+  limitCount: number | null = null
 ): Unsubscribe {
   console.log(`[Firestore Listener] Subscribed to payments (limit: ${limitCount})`);
   // Order by document id (descending): payment ids are pay_<year>_<seq5>, i.e.
@@ -1424,12 +1431,12 @@ export function subscribeToPayments(
   // returned the LOWEST ids — the oldest receipts — so once the collection
   // passed 100 docs every newer receipt (and its revenue) vanished from the
   // listener while a manual Refresh still showed it.
-  const q = query(collection(db, 'payments'), orderBy(documentId(), 'desc'), limit(limitCount));
+  const q = query(collection(db, 'payments'), orderBy(documentId(), 'desc'), ...(limitCount === null ? [] : [limit(limitCount)]));
 
   const unsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      const result = snapshot.docs.map((d) => d.data() as Payment);
+      const result = snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Payment));
       result.sort((a, b) => {
         if (a.sequenceNumber && b.sequenceNumber) return b.sequenceNumber - a.sequenceNumber;
         return new Date(b.paidAt || b.paymentDate || 0).getTime() - new Date(a.paidAt || a.paymentDate || 0).getTime();
@@ -1491,6 +1498,7 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
     cashierName,
     notes,
   } = params;
+  requireMoney(amountPaidUSD, 'Paiement');
 
   // Reject a non-finite or non-positive amount before any write. Without this,
   // a NaN (blank field) or a negative amount was clamped by Math.min against the
@@ -1547,9 +1555,7 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
         throw new Error(`Assessment ${assessmentData.assessmentNumber} has no valid amount due — cannot record a payment against it.`);
       }
       const previousPaidUSD = assessmentData.amountPaidUSD || 0;
-      const currentRemainingUSD = typeof assessmentData.remainingBalanceUSD === 'number'
-        ? assessmentData.remainingBalanceUSD
-        : Math.max(0, totalAssessmentUSD - previousPaidUSD);
+      const currentRemainingUSD = roundMoney(Math.max(0, totalAssessmentUSD - previousPaidUSD));
 
       if (currentRemainingUSD <= 0.001) {
         throw new Error(`This tax assessment (${assessmentData.assessmentNumber}) is already fully paid.`);
@@ -1568,10 +1574,11 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
       }
 
       // Calculate new balances
-      const actualAmountPaidUSD = Math.min(amountPaidUSD, currentRemainingUSD);
-      const newTotalPaidUSD = previousPaidUSD + actualAmountPaidUSD;
-      const newRemainingBalanceUSD = Math.max(0, totalAssessmentUSD - newTotalPaidUSD);
-      const isFullyPaid = newRemainingBalanceUSD <= 0.001;
+      const actualAmountPaidUSD = amountPaidUSD;
+      const balances = paymentBalances(totalAssessmentUSD, previousPaidUSD, amountPaidUSD);
+      const newTotalPaidUSD = balances.paid;
+      const newRemainingBalanceUSD = balances.remaining;
+      const isFullyPaid = balances.fullyPaid;
       const newStatus = isFullyPaid ? 'Paid' : assessmentData.status;
 
       // 2. Fetch and increment atomic monotonic counter
@@ -1593,13 +1600,20 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
       const receiptNumber = `REC-${fiscalYear}-${String(nextSequence).padStart(5, '0')}`;
       const paymentId = `pay_${fiscalYear}_${String(nextSequence).padStart(5, '0')}`;
       const paymentRef = doc(db, 'payments', paymentId);
+      const existingPayment = await transaction.get(paymentRef);
+      if (existingPayment.exists()) throw new Error('Ce numéro de reçu existe déjà. Vérifiez le compteur des reçus.');
+      const sessionRef = params.sessionId ? doc(db, 'cashSessions', params.sessionId) : null;
+      const sessionSnap = sessionRef ? await transaction.get(sessionRef) : null;
+      if (sessionRef && (!sessionSnap?.exists() || sessionSnap.data().status !== 'open' || sessionSnap.data().cashierId !== cashierId)) {
+        throw new Error('La session de caisse est fermée, absente ou appartient à un autre caissier.');
+      }
 
       const createdPayment: Payment = {
         id: paymentId,
         receiptNumber,
         sequenceNumber: nextSequence,
         sessionId: params.sessionId,
-        assessmentId: assessmentData.id,
+        assessmentId,
         assessmentNumber: assessmentData.assessmentNumber || assessmentData.noticeNumber,
         businessId: assessmentData.businessId || assessmentData.taxpayerId,
         businessName: assessmentData.businessName || assessmentData.taxpayerName,
@@ -1612,7 +1626,7 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
         fiscalYear,
         amountPaidUSD: actualAmountPaidUSD,
         currency: 'USD',
-        paymentType: isFullyPaid ? 'full' : paymentType,
+        paymentType: isFullyPaid ? 'full' : 'partial',
         isPartial: !isFullyPaid,
         assessmentTotalUSD: totalAssessmentUSD,
         previousPaidUSD,
@@ -1630,6 +1644,19 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
       };
 
       // 3. Write atomic batch
+      if (sessionRef && sessionSnap?.exists()) {
+        const session = sessionSnap.data();
+        const isCash = createdPayment.paymentMethod === 'Cash_Guichet';
+        transaction.update(sessionRef, {
+          paymentIds: [...(session.paymentIds || []), paymentId],
+          paymentCount: (session.paymentCount || 0) + 1,
+          totalPaymentsCashUSD: roundMoney((session.totalPaymentsCashUSD || 0) + (isCash ? amountPaidUSD : 0)),
+          totalPaymentsOtherUSD: roundMoney((session.totalPaymentsOtherUSD || 0) + (isCash ? 0 : amountPaidUSD)),
+          firstReceiptNumber: session.firstReceiptNumber || receiptNumber,
+          lastReceiptNumber: receiptNumber,
+          updatedAt: createdPayment.paidAt,
+        });
+      }
       transaction.set(counterRef, {
         id: 'receiptCounter',
         currentSequence: nextSequence,
@@ -1673,7 +1700,7 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
       'Payment',
       paymentRecord.id,
       `Cash collection: Sequential receipt No. ${paymentRecord.receiptNumber} issued for ${paymentRecord.businessName}. Amount: ${formatMoney(paymentRecord.amountPaidUSD)}. Type: ${paymentRecord.paymentType === 'full' ? 'Full payment' : 'Partial payment (Balance: $' + paymentRecord.remainingBalanceUSD + ' USD)'}.`
-    );
+    ).catch(() => emitGlobalToast('Paiement enregistré, mais la journalisation a échoué. Ne réencaissez pas ce paiement.', 'warning', 'Journal incomplet'));
 
     // Phase 11: When a business's assessment for a tax year is marked Paid, generate an official Business License Certificate
     if (paymentRecord.paymentType === 'full' || (paymentRecord.remainingBalanceUSD !== undefined && paymentRecord.remainingBalanceUSD <= 0.001)) {
@@ -1699,24 +1726,6 @@ export async function recordCashPayment(params: RecordCashPaymentParams): Promis
           'Paiement enregistré, mais le certificat n\'a pas pu être émis. Réémettez-le depuis le registre des certificats.',
           'warning',
           'Certificat non émis'
-        );
-      }
-    }
-
-    // If linked to an active cash session, update the session running totals
-    if (params.sessionId) {
-      try {
-        const { linkPaymentToCashSession } = await import('./cashService');
-        await linkPaymentToCashSession(params.sessionId, paymentRecord);
-      } catch (err) {
-        // The receipt is issued, but the shift's running total could not be
-        // updated — the drawer would then under-count this payment. Surface it
-        // instead of leaving a silent console warning behind a real receipt.
-        console.warn('[linkPaymentToCashSession error]', err);
-        emitGlobalToast(
-          'Reçu enregistré, mais le rattachement à la session de caisse a échoué — vérifiez la clôture de caisse.',
-          'warning',
-          'Lien caisse incomplet'
         );
       }
     }
@@ -1784,18 +1793,18 @@ export async function voidPaymentReceipt(
     if (livePayment.isVoided) {
       throw new Error(`Receipt ${payment.receiptNumber} has already been voided. Cannot void the same receipt twice.`);
     }
-
-    transaction.update(paymentRef, updates);
+    const sessionRef = livePayment.sessionId ? doc(db, 'cashSessions', livePayment.sessionId) : null;
+    const sessionSnap = sessionRef ? await transaction.get(sessionRef) : null;
 
     if (livePayment.assessmentId) {
       const assessmentRef = doc(db, 'assessments', livePayment.assessmentId);
       const assessmentSnap = await transaction.get(assessmentRef);
       if (assessmentSnap.exists()) {
         const assData = assessmentSnap.data() as Assessment;
-        const remainingUSD = Math.min(
+        const remainingUSD = roundMoney(Math.min(
           assData.amountDueUSD,
           (assData.remainingBalanceUSD ?? (assData.amountDueUSD - (assData.amountPaidUSD || 0))) + (livePayment.amountPaidUSD || 0)
-        );
+        ));
         // Reinstate a valid status: the balance goes back up, so the assessment is
         // either fully unpaid again or partially paid. 'Partial' is not a valid
         // AssessmentStatus, so derive Pending vs Overdue from the due date.
@@ -1809,23 +1818,36 @@ export async function voidPaymentReceipt(
         transaction.update(assessmentRef, {
           status: newStatus,
           remainingBalanceUSD: remainingUSD,
-          amountPaidUSD: Math.max(0, (assData.amountPaidUSD || 0) - (livePayment.amountPaidUSD || 0)),
+          amountPaidUSD: roundMoney(Math.max(0, (assData.amountPaidUSD || 0) - (livePayment.amountPaidUSD || 0))),
           updatedAt: now,
         });
       }
     }
-  });
-
-  // 4. Remove the voided receipt from its cash session's running totals so the
-  // expected drawer cash at close no longer counts this cancelled receipt.
-  if (payment.sessionId) {
-    try {
-      const { unlinkPaymentFromCashSession } = await import('./cashService');
-      await unlinkPaymentFromCashSession(payment.sessionId, payment);
-    } catch (e) {
-      console.warn('[Cash Session Unlink Warning]', e);
+    if (sessionRef && sessionSnap?.exists()) {
+      const session = sessionSnap.data();
+      if ((session.paymentIds || []).includes(payment.id)) {
+        const isCash = !livePayment.paymentMethod || livePayment.paymentMethod === 'Cash_Guichet';
+        const cash = roundMoney(Math.max(0, (session.totalPaymentsCashUSD || 0) - (isCash ? livePayment.amountPaidUSD : 0)));
+        const other = roundMoney(Math.max(0, (session.totalPaymentsOtherUSD || 0) - (isCash ? 0 : livePayment.amountPaidUSD)));
+        const changes: Record<string, unknown> = {
+          paymentIds: session.paymentIds.filter((id: string) => id !== payment.id),
+          paymentCount: Math.max(0, (session.paymentCount || 0) - 1),
+          totalPaymentsCashUSD: cash, totalPaymentsOtherUSD: other, updatedAt: now,
+        };
+        if (session.closedAt || session.expectedCashUSD !== undefined) {
+          const expected = roundMoney((session.openingBalanceUSD || 0) + cash);
+          changes.expectedCashUSD = expected;
+          if (Number.isFinite(session.countedCashUSD)) {
+            const variance = roundMoney(session.countedCashUSD - expected);
+            changes.varianceUSD = variance;
+            changes.hasVariance = hasCashVariance(variance);
+          }
+        }
+        transaction.update(sessionRef, changes);
+      }
     }
-  }
+    transaction.update(paymentRef, updates);
+  });
 
   // 5. Record anomaly in receipt sequence
   try {

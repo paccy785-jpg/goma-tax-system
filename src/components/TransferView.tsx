@@ -189,7 +189,7 @@ export const TransferView: React.FC<{ userRole: UserRole }> = ({ userRole }) => 
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse font-sans">
+            <table className="premium-table w-full table-fixed text-left border-collapse font-sans">
               <thead>
                 <tr className="border-b border-line bg-surface2/50">
                   {HEADERS.map((h, i) => (

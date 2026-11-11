@@ -29,7 +29,12 @@ export type ReceiptLine =
   /** A dashed rule across the paper. */
   | { k: 'rule' }
   /** An empty line. */
-  | { k: 'space' };
+  | { k: 'space' }
+  /**
+   * The DF seal of the Département des Finances, centred — drawn by the T6
+   * Print Station app (version 1.1.0 or later; older versions leave a blank line).
+   */
+  | { k: 'seal' };
 
 export type PrintJobStatus = 'pending' | 'printing' | 'printed' | 'failed';
 

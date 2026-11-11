@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useRevenueLedger } from '../hooks/useRevenueLedger';
+import React, { useState, useMemo } from 'react';
 import { 
   ReceiptText, 
   Search, 
@@ -26,11 +27,13 @@ import { localDateFromIsoTimestamp } from '../utils/date';
 import { OfficialReceiptModal } from './OfficialReceiptModal';
 import {
   BankConfirmation,
-  DECLARATION_KIND_LABELS,
+  PaymentReceipt,
+  RECEIPT_KIND_LABELS,
   receiptNumberOf,
   subscribeToBankConfirmations,
 } from '../services/bankConfirmationService';
 import { DeclarationReceiptModal } from './bank/DeclarationReceiptModal';
+import { noteReceipt, subscribeToNotesPerception } from '../services/notePerceptionService';
 import { PageHeader, Button, Badge, Panel, MetricStrip } from './ui';
 import { formatMoney } from '../utils/money';
 
@@ -44,8 +47,11 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
   onNavigateToVerify 
 }) => {
   const { currentUser, userProfile } = useAuth();
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { sources, loading, error, cached } = useRevenueLedger(reloadKey);
+  const payments = sources.payments;
+  const confirmations = sources.bankConfirmations;
+  const noteReceipts = useMemo(() => sources.notesPerception.map(noteReceipt).filter((r): r is PaymentReceipt => !!r), [sources.notesPerception]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterType, setFilterType] = useState<string>('all');
   const [activeReceipt, setActiveReceipt] = useState<Payment | null>(null);
@@ -53,17 +59,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
    * Declaration payments the bank has confirmed. Each one is a receipt: a
    * declaration enters this ledger only once its payment is confirmed.
    */
-  const [confirmations, setConfirmations] = useState<BankConfirmation[]>([]);
-  const [activeDeclReceipt, setActiveDeclReceipt] = useState<BankConfirmation | null>(null);
-
-  useEffect(
-    () =>
-      subscribeToBankConfirmations(
-        (rows) => setConfirmations(rows || []),
-        (err) => console.warn('[Payments] Bank confirmations listener error:', err)
-      ),
-    []
-  );
+  const [activeDeclReceipt, setActiveDeclReceipt] = useState<PaymentReceipt | null>(null);
 
   // Void Receipt Authority States
   const [receiptToVoid, setReceiptToVoid] = useState<Payment | null>(null);
@@ -73,37 +69,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
 
 
 
-  useEffect(() => {
-    setLoading(true);
-
-    // Active-aware listener for payments
-    const unsubPayments = subscribeToPayments(
-      (pays) => {
-        setPayments(pays || []);
-        setLoading(false);
-      },
-      (err) => {
-        console.error('[Payments] Real-time payments error:', err);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      unsubPayments();
-    };
-  }, [userProfile?.uid, currentUser?.uid]);
-
-  const reloadData = async () => {
-    setLoading(true);
-    try {
-      const pays = await getPayments();
-      setPayments(pays || []);
-    } catch (err) {
-      console.warn('[Payments] Reload error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const reloadData = () => setReloadKey((k) => k + 1);
   const canVoidReceipt = userRole === 'Supervisor' || userRole === 'Admin';
   
 
@@ -180,33 +146,47 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
       c.contribuableNif || '',
       c.reference,
       c.detail || '',
-      DECLARATION_KIND_LABELS[c.kind] || '',
+      RECEIPT_KIND_LABELS[c.kind] || '',
     ]
       .join(' ')
       .toLowerCase()
       .includes(searchLower);
   });
 
-  /** One ledger, newest first: counter receipts and bank-confirmed declarations. */
+  // Confirmed notes de perception, under the same search — their own filter,
+  // apart from the confirmed declarations.
+  const filteredNotes = noteReceipts.filter((c) => {
+    if (!['all', 'full', 'notes'].includes(filterType)) return false;
+    if (!searchLower) return true;
+    return [receiptNumberOf(c), c.contribuableName, c.contribuableNif || '', c.reference, c.detail || '', RECEIPT_KIND_LABELS[c.kind]]
+      .join(' ')
+      .toLowerCase()
+      .includes(searchLower);
+  });
+
+  /** One ledger, newest first: counter receipts, confirmed declarations and confirmed notes de perception. */
   type LedgerEntry =
     | { type: 'counter'; at: string; p: Payment }
-    | { type: 'bank'; at: string; c: BankConfirmation };
+    | { type: 'bank'; at: string; c: PaymentReceipt };
   const ledger: LedgerEntry[] = [
-    ...(filterType === 'declarations' ? [] : filtered).map(
+    ...(filterType === 'declarations' || filterType === 'notes' ? [] : filtered).map(
       (p): LedgerEntry => ({ type: 'counter', at: String(p.paidAt || p.paymentDate || ''), p })
     ),
     ...filteredBank.map((c): LedgerEntry => ({ type: 'bank', at: c.confirmedAt || '', c })),
+    ...filteredNotes.map((c): LedgerEntry => ({ type: 'bank', at: c.confirmedAt || '', c })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
   // Calculate totals (excluding voided receipts)
   const validPayments = payments.filter((p) => !p.isVoided);
   const voidedCount = payments.filter((p) => p.isVoided).length;
-  const bankCollectedUSD = confirmations.reduce((sum, c) => sum + (c.amountUSD || 0), 0);
+  const bankCollectedUSD =
+    confirmations.reduce((sum, c) => sum + (c.amountUSD || 0), 0) +
+    noteReceipts.reduce((sum, c) => sum + (c.amountUSD || 0), 0);
   const totalCollectedUSD =
     validPayments.reduce((sum, p) => sum + (p.amountPaidUSD || 0), 0) + bankCollectedUSD;
-  const totalReceipts = payments.length + confirmations.length;
+  const totalReceipts = payments.length + confirmations.length + noteReceipts.length;
 
-  const renderBankRow = (c: BankConfirmation) => (
+  const renderBankRow = (c: PaymentReceipt) => (
     <tr key={`bank_${c.id}`} className="hover:bg-surface2/30 transition-premium">
       <td className="py-4 px-6 font-mono">
         <div className="font-bold text-ink flex items-center gap-1.5 flex-wrap">
@@ -225,7 +205,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
 
       <td className="py-4 px-6">
         <div className="flex flex-col gap-1 items-start">
-          <Badge variant="sage" dot>{DECLARATION_KIND_LABELS[c.kind] || c.kind}</Badge>
+          <Badge variant="sage" dot>{RECEIPT_KIND_LABELS[c.kind] || c.kind}</Badge>
           <span className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-semibold text-ink bg-surface2 px-2 py-0.5 rounded-full border border-line">
             <Landmark className="w-3 h-3 text-muted" />
             {c.modePaiement || 'Bank confirmed'}
@@ -301,14 +281,19 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
     }
   };
 
+  if (loading || error) return <div role="status" className="space-y-4">
+    <p>{error || 'Chargement du registre complet…'}</p>
+    {error && <Button onClick={reloadData}>Réessayer</Button>}
+  </div>;
+
   return (
     <div className="space-y-8 font-sans">
+      {cached && <p role="status">Données locales non confirmées : les totaux peuvent être incomplets.</p>}
       
       {/* Page Header */}
       <PageHeader
         eyebrow="Cash desk"
         title="Cash Collection & Official Receipts"
-        description="Cash collection, tamper-evident sequential receipt issuance, and installment tracking."
         actions={
           <>
             {onNavigateToVerify && (
@@ -333,7 +318,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
           {
             label: 'Total Collected (USD)',
             value: `${formatMoney(totalCollectedUSD)}`,
-            trend: `${validPayments.length + confirmations.length} valid receipts`,
+            trend: `${validPayments.length + confirmations.length + noteReceipts.length} valid receipts`,
             trendType: 'sage',
             subline: 'Counter & bank-confirmed',
             icon: <DollarSign className="w-4 h-4 text-sage" />,
@@ -376,6 +361,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
             >
               <option value="all">All Payments ({totalReceipts})</option>
               <option value="declarations">Confirmed declarations ({confirmations.length})</option>
+              <option value="notes">Confirmed notes de perception ({noteReceipts.length})</option>
               <option value="full">Full Payments</option>
               <option value="partial">Partial Payments</option>
               <option value="offline">Recorded Offline</option>
@@ -388,7 +374,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
 
         {/* Payments Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs font-sans">
+          <table className="premium-table w-full text-left border-collapse text-xs font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/40">
                 <th className="py-3.5 px-6 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Official Receipt</th>

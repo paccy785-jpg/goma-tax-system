@@ -155,7 +155,7 @@ export const DeclarationsView: React.FC<DeclarationsViewProps> = ({ userRole }) 
    * the reverse.
    */
   const [leases, setLeases] = useState<RentalLease[]>([]);
-  useEffect(() => subscribeToLeases((d) => setLeases(d || []), undefined, 1000), []);
+  useEffect(() => subscribeToLeases((d) => setLeases(d || []), undefined, null), []);
 
   /** NIF of a person on the taxpayer roll, by id or — for a locataire — by name. */
   const nifById = useMemo(() => new Map(businesses.map((b) => [b.id, b.nif || ''])), [businesses]);

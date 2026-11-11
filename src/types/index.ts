@@ -126,6 +126,7 @@ export interface Assessment {
 }
 
 export type PaymentMethod = 
+  | 'Other'
   | 'Cash_Guichet' 
   | 'Mobile_Money_Airtel' 
   | 'Mobile_Money_Orange' 
@@ -139,6 +140,7 @@ export type PaymentType = 'full' | 'partial';
  * the mode of payment is printed in the same language as the amount.
  */
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  Other: 'Autre / non précisé',
   Cash_Guichet: 'Espèces (Guichet)',
   Mobile_Money_Airtel: 'Mobile Money — Airtel',
   Mobile_Money_Orange: 'Mobile Money — Orange',
@@ -234,6 +236,7 @@ export interface AuditLog {
     | 'RevenueDeclaration'
     | 'PropertyTransfer'
     | 'BankConfirmation'
+    | 'DeclarationAdmin'
     | 'NotePerception'
     | 'NomenclatureImpot';
   entityId: string;
@@ -1579,7 +1582,7 @@ export type ReceptionService =
 
 export type ReceptionPriority = 'Normal' | 'Priority';
 
-export type ReceptionStatus = 'Waiting' | 'InService' | 'Completed' | 'Cancelled' | 'NoShow';
+export type ReceptionStatus = 'Scheduled' | 'Waiting' | 'InService' | 'Completed' | 'Cancelled' | 'NoShow';
 
 export const RECEPTION_SERVICES: ReceptionService[] = [
   'Business Registration',
@@ -1601,6 +1604,11 @@ export interface ReceptionEntry {
   service: string;
   priority: ReceptionPriority;
   status: ReceptionStatus;
+  scheduledFor?: string;
+  scheduledTime?: string;
+  scheduledAt?: string;
+  scheduledBy?: string;
+  originalCheckedInAt?: string;
   checkedInAt: string; // ISO timestamp — waiting clock starts here
   calledAt?: string | null; // ISO — moved Waiting -> InService
   completedAt?: string | null; // ISO — moved InService -> Completed
@@ -1631,6 +1639,7 @@ export function normalizeReceptionService(val?: string | null): string {
 export function normalizeReceptionStatus(val?: string | null): ReceptionStatus {
   if (!val) return 'Waiting';
   const lower = val.toLowerCase().trim();
+  if (lower === 'scheduled' || lower === 'planifié') return 'Scheduled';
   if (lower === 'waiting' || lower === 'en attente') return 'Waiting';
   if (lower === 'inservice' || lower === 'in_service' || lower === 'in service' || lower === 'serving') return 'InService';
   if (lower === 'completed' || lower === 'done' || lower === 'terminé' || lower === 'termine') return 'Completed';

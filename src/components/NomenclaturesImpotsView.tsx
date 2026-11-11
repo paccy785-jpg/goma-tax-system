@@ -273,7 +273,7 @@ export const NomenclaturesImpotsView: React.FC<{ userRole: UserRole }> = ({ user
         padding="none"
       >
         <div className="w-full overflow-x-auto">
-          <table className="w-full table-auto text-left border-collapse font-sans">
+          <table className="premium-table w-full table-auto text-left border-collapse font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/50">
                 {COLUMNS.map((c, i) => (

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   Building2, 
   DollarSign, 
@@ -14,13 +14,14 @@ import {
   Calendar
 } from 'lucide-react';
 import { NavigationItem, UserRole, normalizeAssessmentStatus, normalizeBusinessStatus, normalizeApprovalStatus, Payment, Assessment } from '../types';
-import { getBusinesses, getAssessments, getPayments, getDashboardAggregateCounts } from '../services/dbService';
 import { getApprovalRequests } from '../services/approvalService';
 import { emitGlobalToast } from '../contexts/ToastContext';
 import { localDateFromIsoTimestamp, toLocalDateString } from '../utils/date';
 import { PageHeader, Button, Badge, Panel, MetricStrip, Skeleton, TableSkeleton } from './ui';
 import { formatMoney } from '../utils/money';
 import { BRAND } from '../branding';
+import { useRevenueLedger } from '../hooks/useRevenueLedger';
+import { communeOf, isIssuedAssessment, paymentDayOf } from '../services/reportsService';
 
 interface DashboardViewProps {
   userRole: UserRole;
@@ -57,7 +58,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   userName,
   onNavigate,
 }) => {
-  const [loading, setLoading] = useState<boolean>(true);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { businesses, assessments, payments: allPayments, loading: ledgerLoading, error: ledgerError, cached } = useRevenueLedger(reloadKey);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const loadGeneration = useRef(0);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [monthlyChartData, setMonthlyChartData] = useState<{ label: string; amount: number; isCurrent: boolean }[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
@@ -80,60 +85,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   const loadRealDashboardData = async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     try {
-      const [aggregates, businesses, assessments, allPayments, approvalRequests] = await Promise.all([
-        getDashboardAggregateCounts(),
-        getBusinesses(),
-        getAssessments(),
-        getPayments(),
-        getApprovalRequests(),
-      ]);
-
-      // Fallback path (server count unavailable — e.g. offline): normalize the
-      // status instead of raw string equality, which missed 'En attente' and
-      // padded spellings, under-reporting the maker-checker queue.
-      const pendingReqs = aggregates.pendingApprovalsCount || approvalRequests.filter((r) => normalizeApprovalStatus(r.status) === 'Pending').length;
+      const approvalRequests = await getApprovalRequests();
+      if (generation !== loadGeneration.current) return;
+      const pendingReqs = approvalRequests.filter((r) => normalizeApprovalStatus(r.status) === 'Pending').length;
 
       // Voided receipts are cancelled payments — never count them as revenue.
       const payments = allPayments.filter((p) => !p.isVoided);
 
-      const totalBiz = Math.max(aggregates.totalBusinesses, businesses.length);
+      const totalBiz = businesses.length;
       const gomaBiz = businesses.filter(
-        (b) => b.commune === 'Goma' || !b.commune || b.commune.toLowerCase().includes('goma')
+        (b) => communeOf(b.commune) === 'Goma'
       ).length;
-      const karisimbiBiz = businesses.filter((b) => b.commune === 'Karisimbi').length;
+      const karisimbiBiz = businesses.filter((b) => communeOf(b.commune) === 'Karisimbi').length;
       const activeBiz = businesses.filter((b) => normalizeBusinessStatus(b.status) === 'Active').length;
 
       const now = new Date();
       const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const paymentLocalDay = (p: Payment): string => {
-        if (p.paymentDate) return p.paymentDate.slice(0, 7);
-        if (p.paidAt) return localDateFromIsoTimestamp(p.paidAt).slice(0, 7);
-        return '';
-      };
-      let activeMonthPayments = payments.filter((p) => {
+      const paymentLocalDay = (p: Payment): string => paymentDayOf(p)?.slice(0, 7) || '';
+      const activeMonthPayments = payments.filter((p) => {
         return paymentLocalDay(p) === currentYearMonth;
       });
 
-      let calculatedMonthLabel = `${MONTH_NAMES_EN[now.getMonth()]} ${now.getFullYear()}`;
-
-      if (activeMonthPayments.length === 0 && payments.length > 0) {
-        const sortedDates = payments
-          .map((p) => p.paymentDate || (p.paidAt ? localDateFromIsoTimestamp(p.paidAt) : ''))
-          .filter(Boolean)
-          .sort()
-          .reverse();
-
-        if (sortedDates.length > 0) {
-          const latest = sortedDates[0];
-          const [y, m] = latest.split('-');
-          const mIdx = parseInt(m, 10) - 1;
-          const targetPrefix = `${y}-${m}`;
-          activeMonthPayments = payments.filter((p) => paymentLocalDay(p) === targetPrefix);
-          calculatedMonthLabel = `${MONTH_NAMES_EN[mIdx] || m} ${y}`;
-        }
-      }
+      const calculatedMonthLabel = `${MONTH_NAMES_EN[now.getMonth()]} ${now.getFullYear()}`;
 
       const revMonthUSD = activeMonthPayments.reduce((sum, p) => sum + (p.amountPaidUSD || 0), 0);
       const totalRevUSD = payments.reduce((sum, p) => sum + (p.amountPaidUSD || 0), 0);
@@ -141,7 +117,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const todayStr = toLocalDateString(now);
       const outstandingAssessments = assessments.filter((a) => {
         const s = normalizeAssessmentStatus(a.status);
-        if (s === 'Paid' || s === 'Cancelled') {
+        if (s === 'Paid' || !isIssuedAssessment(a)) {
           return false;
         }
         const remaining = typeof a.remainingBalanceUSD === 'number'
@@ -219,16 +195,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       setMonthlyChartData(monthsBack);
 
     } catch (err: any) {
+      if (generation !== loadGeneration.current) return;
+      setError('Impossible de charger le tableau de bord. Réessayez.');
       console.error('[Dashboard real data load error]', err);
       emitGlobalToast(`Failed to load dashboard metrics: ${err?.message || 'Database error'}`, 'error', 'Database Error');
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRealDashboardData();
-  }, []);
+    if (ledgerLoading || ledgerError) return;
+    setError('');
+    void loadRealDashboardData();
+    return () => { loadGeneration.current++; };
+  }, [businesses, assessments, allPayments, ledgerLoading, ledgerError]);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -263,25 +244,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const maxChartAmount = Math.max(...monthlyChartData.map((d) => d.amount), 500);
 
+  if (ledgerLoading || loading || ledgerError || error) return (
+    <div className="space-y-4" role="status">
+      <PageHeader title="Tableau de bord" />
+      <p>{ledgerError || error || 'Chargement du registre complet…'}</p>
+      {(ledgerError || error) && <Button onClick={() => setReloadKey((k) => k + 1)}>Réessayer</Button>}
+    </div>
+  );
+
   return (
     <div className="space-y-8 font-sans">
+      {cached && <p role="status" className="p-4 border border-warn rounded-xl">Données locales non confirmées par le serveur : les totaux peuvent être incomplets.</p>}
       
       {/* Page Header */}
       <PageHeader
         eyebrow={getTodayEyebrow()}
         title={`${getGreeting()}, ${firstName}.`}
-        description={`${BRAND.shortName} revenue command center for commercial patente licenses across Goma and Karisimbi.`}
+        description={`${BRAND.shortName} revenue command center for recorded taxes across Goma and Karisimbi.`}
       />
 
-      {/* Metric Strip (4 columns divided by thin line borders) */}
+      {/* Metric Strip (2 columns divided by a thin line border) */}
       <MetricStrip
-        columns={4}
+        columns={2}
         items={[
           {
-            // Show the period the figure actually covers: when the current
-            // month has no receipts yet the metric falls back to the latest
-            // month with data — the old hardcoded "This Month" label displayed
-            // last month's revenue as if it were this month's.
+            // Always report the current calendar month, including a genuine zero.
             label: `Collected — ${metrics.monthLabel || 'This Month'}`,
             value: loading ? '...' : `${formatMoney(metrics.revenueThisMonthUSD)}`,
             trend: `${metrics.monthTransactionCount} receipts`,
@@ -296,22 +283,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             trendType: 'muted',
             subline: `${metrics.gomaBusinesses} Goma • ${metrics.karisimbiBusinesses} Karisimbi`,
             icon: <Building2 className="w-4 h-4 text-accent" />,
-          },
-          {
-            label: 'Outstanding Balance',
-            value: loading ? '...' : `${formatMoney(metrics.outstandingTotalUSD)}`,
-            trend: metrics.overdueCount > 0 ? `${metrics.overdueCount} overdue` : 'No arrears',
-            trendType: metrics.overdueCount > 0 ? 'danger' : 'sage',
-            subline: `${metrics.outstandingCount} notices pending`,
-            icon: <Clock className="w-4 h-4 text-warn" />,
-          },
-          {
-            label: 'Open Approvals',
-            value: loading ? '...' : metrics.pendingApprovalsCount.toString(),
-            trend: metrics.pendingApprovalsCount > 0 ? 'Awaiting audit' : 'Queue clear',
-            trendType: metrics.pendingApprovalsCount > 0 ? 'warn' : 'sage',
-            subline: 'Maker-Checker gate',
-            icon: <ShieldCheck className="w-4 h-4 text-muted" />,
           },
         ]}
       />
@@ -335,7 +306,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="pt-4">
               <div className="h-44 flex items-end justify-between gap-3 px-2 border-b border-line pb-2">
                 {monthlyChartData.map((d, idx) => {
-                  const heightPercent = Math.max(12, Math.round((d.amount / maxChartAmount) * 100));
+                  const heightPercent = Math.max(0, (d.amount / maxChartAmount) * 100);
                   return (
                     <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
                       <div className="text-[11px] font-bold text-muted tabular-nums opacity-0 group-hover:opacity-100 transition-premium">
@@ -370,7 +341,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* Panel 2: Portfolio Health */}
         <Panel
           title="Tax Portfolio Health"
-          subtitle="Distribution of issued patente assessments by current fiscal status"
+          subtitle="Distribution of issued tax notices by current fiscal status"
         >
           {loading ? (
             <Skeleton className="h-44 w-full" />
@@ -435,7 +406,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Recent Receipts Table Panel */}
       <Panel
         title="Recent Tax Receipts"
-        subtitle="Latest revenue payments collected and issued through municipal cash desks"
+        subtitle="Latest confirmed receipts across all collection channels"
         actions={
           <Button variant="ghost" size="sm" onClick={() => onNavigate('payments')}>
             View Full Ledger
@@ -451,7 +422,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse font-sans">
+            <table className="premium-table w-full text-left border-collapse font-sans">
               <thead>
                 <tr className="border-b border-line bg-surface2/40">
                   <th className="text-[11px] font-bold uppercase tracking-[0.1em] text-faint px-6 py-3.5">
@@ -494,7 +465,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               {p.businessName || p.taxpayerName}
                             </div>
                             <div className="text-[12px] text-muted truncate">
-                              Notice #{p.assessmentNumber || 'PAT-2026'}
+                              Notice #{p.assessmentNumber || '—'}
                             </div>
                           </div>
                         </div>

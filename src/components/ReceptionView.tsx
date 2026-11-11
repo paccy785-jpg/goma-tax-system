@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
@@ -32,13 +33,16 @@ import {
   minutesBetween,
   pickNextVisitor,
   registerVisitor,
+  scheduleReceptionVisitor,
   serviceMinutesFor,
   sortQueueForDisplay,
   subscribeToReceptionQueue,
   waitMinutesFor,
 } from '../services/receptionService';
-import { localDateFromIsoTimestamp, todayDateString } from '../utils/date';
+import { localDateFromIsoTimestamp, todayDateString, shiftDateString } from '../utils/date';
 import { buildCsv } from '../utils/csv';
+import { ScheduledMeetingsView } from './reception/ScheduledMeetingsView';
+import { includeRegisteredVisitor } from '../utils/receptionQueue';
 
 interface ReceptionViewProps {
   userRole: UserRole;
@@ -70,21 +74,48 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
   const { userProfile } = useAuth();
   const today = useMemo(() => todayDateString(), []);
 
+  const [receptionTab, setReceptionTab] = useState<'queue' | 'meetings'>('queue');
   const [queue, setQueue] = useState<ReceptionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [nowIso, setNowIso] = useState(() => new Date().toISOString());
   const [query, setQuery] = useState('');
   const [serviceFilter, setServiceFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState<'active' | 'Waiting' | 'InService' | 'Completed' | 'all'>('active');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'Waiting' | 'InService' | 'Completed' | 'Scheduled' | 'all'>('active');
 
   const [registerOpen, setRegisterOpen] = useState(false);
   const [visitorName, setVisitorName] = useState('');
   const [visitorNotes, setVisitorNotes] = useState('');
   const [registering, setRegistering] = useState(false);
+  const registrationInFlight = useRef(false);
 
   const [callTarget, setCallTarget] = useState<ReceptionEntry | null>(null);
   const [callWindow, setCallWindow] = useState<string>(RECEPTION_WINDOWS[0]);
   const [calling, setCalling] = useState(false);
+  const [scheduleTarget, setScheduleTarget] = useState<ReceptionEntry | null>(null);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const scheduleBusy = useRef(false);
+  const openSchedule = (entry: ReceptionEntry) => {
+    setScheduleDate('');
+    setScheduleTarget(entry);
+  };
+  const saveSchedule = async (entry: ReceptionEntry, date: string | null) => {
+    if (!canManage || scheduleBusy.current) return;
+    scheduleBusy.current = true;
+    setScheduling(true);
+    try {
+      const updated = await scheduleReceptionVisitor(entry.id, date, actor);
+      setQueue((current) => current.map((e) => e.id === updated.id ? updated : e));
+      setScheduleTarget(null);
+      if (date) { setStatusFilter('Scheduled'); setReceptionTab('meetings'); }
+      showToast(date ? 'Visitor scheduled.' : 'Visitor checked in.', 'success', 'Reception');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not update visitor.', 'error', 'Update failed');
+    } finally {
+      scheduleBusy.current = false;
+      setScheduling(false);
+    }
+  };
 
   const canManage = userRole === 'Admin' || userRole === 'Supervisor' || userRole === 'Cashier';
   const actor = {
@@ -162,6 +193,7 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
   const nextUp = useMemo(() => pickNextVisitor(queue), [queue]);
 
   const openRegister = () => {
+    if (registrationInFlight.current) return;
     if (!canManage) {
       showToast('Auditors have read-only access to the reception queue.', 'warning', 'Restricted action');
       return;
@@ -173,10 +205,12 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
 
   const submitRegistration = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!canManage || registrationInFlight.current) return;
     if (!visitorName.trim()) {
       showToast('Enter the visitor’s name to open their queue ticket.', 'warning', 'Name required');
       return;
     }
+    registrationInFlight.current = true;
     setRegistering(true);
     try {
       const entry = await registerVisitor({
@@ -187,12 +221,13 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
         notes: visitorNotes.trim(),
         actor,
       });
-      setQueue((current) => [entry, ...current]);
+      setQueue((current) => includeRegisteredVisitor(current, entry));
       setRegisterOpen(false);
       showToast(`"${entry.visitorName}" checked in. Waiting clock started.`, 'success', 'Visitor registered');
     } catch (err: any) {
       showToast(err?.message || 'Could not register the visitor.', 'error', 'Check-in failed');
     } finally {
+      registrationInFlight.current = false;
       setRegistering(false);
     }
   };
@@ -260,9 +295,9 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
 
   const exportQueue = () => {
     const rows = [
-      ['Visitor', 'Phone', 'Service', 'Priority', 'Status', 'Checked in', 'Wait (min)', 'Served by', 'Window'],
+      ['Visitor', 'Phone', 'Service', 'Priority', 'Status', 'Scheduled date', 'Checked in', 'Wait (min)', 'Served by', 'Window'],
       ...visibleQueue.map((e) => [
-        e.visitorName, e.phone || '', e.service, e.priority, e.status, e.checkedInAt,
+        e.visitorName, e.phone || '', e.service, e.priority, e.status, e.scheduledFor || '', e.checkedInAt,
         String(waitMinutesFor(e, nowIso)), e.servedByName || '', e.window || '',
       ]),
     ];
@@ -279,6 +314,7 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
   };
 
   const statusBadge = (entry: ReceptionEntry) => {
+    if (entry.status === 'Scheduled') return <Badge variant="warn">Scheduled</Badge>;
     if (entry.status === 'Waiting') {
       const waited = waitMinutesFor(entry, nowIso);
       if (waited >= 30) return <Badge variant="danger" dot>Waiting {formatWait(waited)}</Badge>;
@@ -296,8 +332,8 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
       <PageHeader
         eyebrow="FRONT DESK • VISITOR FLOW"
         title="Reception"
-        description="Check visitors in and start their waiting clock. A live clock runs on every ticket until the visitor is called."
-        actions={
+        description={receptionTab === 'meetings' ? 'Plan meetings and visits, then check visitors in when they arrive.' : 'Check visitors in and start their waiting clock. A live clock runs on every ticket until the visitor is called.'}
+        actions={receptionTab === 'queue' ? (
           <>
             <Button variant="ghost" size="md" icon={<Download className="w-4 h-4" />} onClick={exportQueue}>
               Export queue
@@ -309,9 +345,15 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
               Check in visitor
             </Button>
           </>
-        }
+        ) : undefined}
       />
 
+      <div role="tablist" aria-label="Reception sections" className="inline-flex gap-1 p-1.5 rounded-[14px] border border-line bg-surface2">
+        {(['queue', 'meetings'] as const).map((tab) => <button type="button" role="tab" aria-selected={receptionTab === tab} key={tab} onClick={() => setReceptionTab(tab)} className={`px-5 py-2.5 rounded-[10px] text-sm font-bold ${receptionTab === tab ? 'bg-surface text-accent shadow-card' : 'text-muted hover:text-ink'}`}>{tab === 'queue' ? 'Visitor queue' : 'Scheduled Meetings'}</button>)}
+      </div>
+      {receptionTab === 'meetings' ? <ScheduledMeetingsView entries={queue} actor={actor} canManage={canManage} loading={loading}
+        onSaved={(entry) => setQueue((current) => includeRegisteredVisitor(current, entry))}
+        onReschedule={openSchedule} onReturn={(entry) => void saveSchedule(entry, null)} /> : <>
       {/* Hero: live waiting room */}
       <section className="relative overflow-hidden rounded-[24px] bg-navy text-white border border-navy2/80 shadow-[0_24px_60px_-28px_oklch(28%_0.045_258/0.7)]">
         <div className="absolute -right-16 -top-24 w-72 h-72 rounded-full bg-accent/20 blur-3xl" />
@@ -376,14 +418,14 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
       {/* Filters */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
         <div className="inline-flex p-1 rounded-[14px] bg-surface2 border border-line w-fit">
-          {(['active', 'Waiting', 'InService', 'Completed', 'all'] as const).map((tab) => (
+          {(['active', 'Waiting', 'InService', 'Completed', 'Scheduled', 'all'] as const).map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setStatusFilter(tab)}
               className={`px-4 py-2 rounded-[10px] text-xs font-bold transition-premium cursor-pointer ${statusFilter === tab ? 'bg-surface text-ink shadow-xs' : 'text-muted hover:text-ink'}`}
             >
-              {tab === 'active' ? 'Live queue' : tab === 'Waiting' ? 'Waiting' : tab === 'InService' ? 'In service' : tab === 'Completed' ? 'Served' : 'Everything'}
+              {tab === 'active' ? 'Live queue' : tab === 'Waiting' ? 'Waiting' : tab === 'InService' ? 'In service' : tab === 'Completed' ? 'Served' : tab === 'Scheduled' ? 'Scheduled' : 'Everything'}
             </button>
           ))}
         </div>
@@ -417,7 +459,7 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
           padding="none"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[920px]">
+            <table className="premium-table w-full text-left text-xs min-w-[920px]">
               <thead className="bg-surface2/70 border-b border-line">
                 <tr className="text-[11px] uppercase tracking-[0.1em] text-muted">
                   <th className="font-bold px-6 py-3.5">Visitor</th>
@@ -446,7 +488,7 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
                             </div>
                             <div className="text-[12px] text-muted truncate flex items-center gap-1">
                               {entry.phone && <><Phone className="w-3 h-3" />{entry.phone} · </>}
-                              In at {checkInTime(entry.checkedInAt)}
+                              {entry.status === 'Scheduled' ? entry.scheduledFor?.split('-').reverse().join('/') : <>In at {checkInTime(entry.checkedInAt)}</>}
                             </div>
                             {entry.notes && <div className="text-[11px] text-muted truncate mt-0.5 max-w-[280px]">{entry.notes}</div>}
                           </div>
@@ -460,15 +502,15 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
                             {entry.status === 'InService' && entry.calledAt && ` · serving ${formatWait(serviceMinutesFor(entry, nowIso))}`}
                           </div>
                         ) : (
-                          <div className="text-[11px] text-muted mt-1">Queue #{index + 1}</div>
+                          <div className="text-[11px] text-muted mt-1">{entry.status === 'Scheduled' ? entry.scheduledFor?.split('-').reverse().join('/') : `Queue #${index + 1}`}</div>
                         )}
                       </td>
                       <td className="px-4 py-4 text-right">
                         <div className={`font-display font-bold text-base tabular-nums ${entry.status === 'Waiting' && waited >= 30 ? 'text-danger' : entry.status === 'Waiting' && waited >= 15 ? 'text-warn' : 'text-ink'}`}>
-                          {formatWait(waited)}
+                          {entry.status === 'Scheduled' ? '—' : formatWait(waited)}
                         </div>
                         <div className="text-[11px] text-muted">
-                          {entry.status === 'Waiting' ? 'ticking…' : `final wait${entry.status === 'Completed' && entry.completedAt && entry.calledAt ? ` · served ${formatWait(minutesBetween(entry.calledAt, entry.completedAt))}` : ''}`}
+                          {entry.status === 'Scheduled' ? entry.scheduledFor?.split('-').reverse().join('/') : entry.status === 'Waiting' ? 'ticking…' : `final wait${entry.status === 'Completed' && entry.completedAt && entry.calledAt ? ` · served ${formatWait(minutesBetween(entry.calledAt, entry.completedAt))}` : ''}`}
                         </div>
                       </td>
                       <td className="px-4 py-4">{statusBadge(entry)}</td>
@@ -478,6 +520,7 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
                             <Button variant="primary" size="sm" icon={<BellRing className="w-3.5 h-3.5" />} onClick={() => openCall(entry)} disabled={!canManage}>
                               Call
                             </Button>
+                            <Button variant="secondary" size="sm" icon={<CalendarDays className="w-3.5 h-3.5" />} onClick={() => openSchedule(entry)} disabled={!canManage}>Schedule</Button>
                             {canManage && (
                               <button type="button" title="Mark as no-show" onClick={() => handleClose(entry, 'NoShow')} className="p-2 rounded-[9px] border border-line bg-surface text-muted hover:text-danger hover:border-danger/40 cursor-pointer" aria-label={`No-show ${entry.visitorName}`}>
                                 <UserX className="w-3.5 h-3.5" />
@@ -485,6 +528,10 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
                             )}
                           </div>
                         )}
+                        {entry.status === 'Scheduled' && <div className="inline-flex gap-1.5">
+                          <Button size="sm" variant="secondary" onClick={() => openSchedule(entry)} disabled={!canManage || scheduling}>Reschedule</Button>
+                          <Button size="sm" onClick={() => void saveSchedule(entry, null)} disabled={!canManage || scheduling || !entry.scheduledFor || entry.scheduledFor > todayDateString()}>Check in</Button>
+                        </div>}
                         {entry.status === 'InService' && (
                           <div className="inline-flex gap-1.5 justify-end flex-wrap">
                             <Button variant="primary" size="sm" icon={<CheckCircle2 className="w-3.5 h-3.5" />} onClick={() => handleComplete(entry)} disabled={!canManage}>
@@ -518,6 +565,8 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
         </Panel>
       )}
 
+      </>}
+
       {/* Check-in modal */}
       {registerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs">
@@ -546,6 +595,25 @@ export const ReceptionView: React.FC<ReceptionViewProps> = ({ userRole }) => {
                 <Button type="submit" variant="primary" size="md" icon={<CheckCircle2 className="w-4 h-4" />} disabled={registering}>
                   {registering ? 'Checking in…' : 'Start waiting clock'}
                 </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {scheduleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs">
+          <div role="dialog" aria-modal="true" aria-labelledby="schedule-visitor-title" className="bg-surface rounded-[22px] border border-line shadow-2xl w-full max-w-md p-6 space-y-4">
+            <h3 id="schedule-visitor-title" className="text-lg font-bold text-ink">Schedule visitor</h3>
+            <p className="text-sm text-muted">{scheduleTarget.visitorName}</p>
+            <form onSubmit={(event) => { event.preventDefault(); void saveSchedule(scheduleTarget, scheduleDate); }} className="space-y-4">
+              <label className="block text-sm text-ink">Appointment date
+                <input type="date" required min={shiftDateString(todayDateString(), 1)} value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} className="block w-full mt-2 p-3 rounded-lg border border-line bg-surface2" />
+              </label>
+              <p className="text-xs text-muted">The visitor moves to Scheduled. Check them in when they return to start a new waiting clock.</p>
+              <div className="flex justify-end gap-2">
+                <Button onClick={() => setScheduleTarget(null)} disabled={scheduling}>Cancel</Button>
+                <Button type="submit" variant="primary" disabled={scheduling}>{scheduling ? 'Saving…' : 'Confirm schedule'}</Button>
               </div>
             </form>
           </div>

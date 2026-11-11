@@ -18,6 +18,7 @@ import { Payment } from '../types';
 import { BRAND } from '../branding';
 import { localDateFromIsoTimestamp, todayDateString } from '../utils/date';
 import { formatMoney } from '../utils/money';
+import { printOnePage } from '../utils/printOnePage';
 
 interface OfficialReceiptModalProps {
   payment: Payment | null;
@@ -32,6 +33,8 @@ export const OfficialReceiptModal: React.FC<OfficialReceiptModalProps> = ({
 }) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+  /** The printable receipt, printed on its own portrait page (one page, like the note de perception). */
+  const sheetRef = useRef<HTMLDivElement>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -90,9 +93,8 @@ export const OfficialReceiptModal: React.FC<OfficialReceiptModalProps> = ({
     });
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () =>
+    printOnePage(sheetRef.current, { layoutWidth: 600, title: payment.receiptNumber || 'Reçu' });
 
   const isPartial = payment.paymentType === 'partial' || payment.isPartial;
 
@@ -140,7 +142,7 @@ export const OfficialReceiptModal: React.FC<OfficialReceiptModalProps> = ({
         </div>
 
         {/* Printable Official Document Container - Internal Scroll Region */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4 bg-white text-slate-900 relative print:p-0 print:overflow-visible">
+        <div ref={sheetRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4 bg-white text-slate-900 relative print:p-0 print:overflow-visible">
           
           {/* Watermark in background */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">

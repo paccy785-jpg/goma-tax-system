@@ -74,7 +74,7 @@ const ALL_NAV_ITEMS: NavItemConfig[] = [
   { id: 'declarations', label: 'Declarations', icon: FileText, section: 'Workspace' },
   { id: 'taxpayer-profile', label: 'Tax Payer Profile', icon: IdCard, section: 'Workspace' },
   { id: 'transfer', label: 'Transfer', icon: ArrowLeftRight, section: 'Workspace' },
-  { id: 'bank-agent', label: 'Bank Agent', icon: BadgeCheck, section: 'Workspace' },
+  { id: 'bank-agent', label: 'Accountant', icon: BadgeCheck, section: 'Workspace' },
   { id: 'note-perception', label: 'Note de Perception', icon: ScrollText, section: 'Workspace' },
   { id: 'notifications', label: 'Notifications', icon: Bell, section: 'Workspace' },
   // Payment History is now a subtab of Bank Agent (Historique des paiements).

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer } from 'lucide-react';
+import { BadgeCheck, Clock, Lock, Printer } from 'lucide-react';
 import {
   montantPaiementEnLettres,
   montantPaiementUSD,
@@ -42,7 +42,7 @@ const SectionTable: React.FC<{
   const last = headers.length - 1;
   return (
     <div className="w-full overflow-x-auto">
-      <table aria-label={label} className={`w-full ${minWidth} table-auto text-left border-collapse font-sans`}>
+      <table aria-label={label} className={`premium-table w-full ${minWidth} table-auto text-left border-collapse font-sans`}>
         <thead>
           <tr className="border-b border-line bg-surface2/50">
             {headers.map((h, i) => (
@@ -499,6 +499,22 @@ const COMPTABLE_HEADERS: Header[] = [
   { label: 'Date', w: '9%' },
 ];
 
+/**
+ * The Comptable tab's list adds "Paiement" at the right edge: the payment is
+ * confirmed there once the comptable has filled in the note.
+ */
+const COMPTABLE_LIST_HEADERS: Header[] = [
+  { label: 'Nom du redevable', w: '12%' },
+  { label: 'Code ou désignation du bureau comptable', w: '13%' },
+  { label: 'Mode de paiement', w: '12%' },
+  { label: 'Quittance numéro', w: '9%' },
+  { label: 'Montant en chiffres', w: '9%', right: true },
+  { label: 'Montant en lettres', w: '14%' },
+  { label: 'Nom du comptable', w: '10%' },
+  { label: 'Date', w: '8%' },
+  { label: 'Paiement', w: '13%' },
+];
+
 /** The taxpayer a note de perception is for: the taxateur's part, else the ordonnance's. */
 const redevableOf = (n: NotePerception): { name: string; nif: string } => ({
   name: (n.taxateur?.contribuableName || n.ordonnateur?.contribuableName || '').trim(),
@@ -516,15 +532,17 @@ export const ComptableSectionTable: React.FC<{
   placeholder?: React.ReactNode;
   /** Opens the payment card on a note awaiting payment — absent for read-only roles. */
   onFill?: (n: NotePerception) => void;
-}> = ({ notes, placeholder, onFill }) => {
+  /** Opens "Confirmer le paiement" on a note the comptable has filled in — absent for read-only roles. */
+  onConfirm?: (n: NotePerception) => void;
+}> = ({ notes, placeholder, onFill, onConfirm }) => {
   const awaiting = notes.filter((n) => !!n.taxateur && !!n.ordonnateur && !n.comptable);
   const paid = notes.filter((n) => !!n.comptable);
   const rows = [...awaiting, ...paid];
-  const last = COMPTABLE_HEADERS.length - 1;
+  const last = COMPTABLE_LIST_HEADERS.length - 1;
   return (
     <SectionTable
-      headers={COMPTABLE_HEADERS}
-      minWidth="min-w-[1120px]"
+      headers={COMPTABLE_LIST_HEADERS}
+      minWidth="min-w-[1300px]"
       rowCount={rows.length}
       placeholder={placeholder}
       label="Rempli par l'agent bancaire (bureau comptable)"
@@ -599,6 +617,38 @@ export const ComptableSectionTable: React.FC<{
             </td>
             <td className={`${pad(7, last)} py-3.5`}>
               <span className="text-xs font-mono text-ink tabular-nums whitespace-nowrap">{frDay(c.date)}</span>
+            </td>
+            {/* Paiement — confirmed once the comptable has filled in the note. */}
+            <td className={`${pad(8, last)} py-3.5`}>
+              {n.confirmation ? (
+                <div className="min-w-0">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[6px] bg-sage/12 text-sage text-[11px] font-bold uppercase tracking-wide">
+                    <BadgeCheck className="w-3 h-3" />
+                    Payé
+                  </span>
+                  <div className="text-[12px] font-mono text-ink truncate mt-1" title={n.confirmation.reference}>
+                    Réf. {n.confirmation.reference}
+                  </div>
+                  <div className="flex items-center gap-1 text-[11px] text-faint mt-0.5">
+                    <Lock className="w-2.5 h-2.5" />
+                    {new Date(n.confirmation.confirmedAt).toLocaleDateString('fr-FR')}
+                  </div>
+                </div>
+              ) : onConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => onConfirm(n)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-accent text-white text-[12px] font-semibold hover:brightness-110 cursor-pointer transition-premium whitespace-nowrap"
+                >
+                  <BadgeCheck className="w-3.5 h-3.5" />
+                  Confirmer le paiement
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[6px] bg-warn/10 text-warn text-[11px] font-bold uppercase tracking-wide">
+                  <Clock className="w-3 h-3" />
+                  En attente
+                </span>
+              )}
             </td>
           </tr>
         );

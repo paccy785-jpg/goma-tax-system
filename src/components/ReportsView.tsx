@@ -22,14 +22,7 @@ import {
 } from 'lucide-react';
 import { UserRole, BusinessSector, SECTOR_LABELS, normalizeBusinessStatus } from '../types';
 import { todayDateString } from '../utils/date';
-import { 
-  getBusinesses, 
-  subscribeToBusinesses,
-  getAssessments, 
-  subscribeToAssessments,
-  getPayments,
-  subscribeToPayments 
-} from '../services/dbService';
+import { useRevenueLedger } from '../hooks/useRevenueLedger';
 import { 
   computePeriodRevenue,
   computeCommuneRevenue,
@@ -59,72 +52,29 @@ interface ReportsViewProps {
 
 type ReportTab = 'period' | 'commune' | 'sector' | 'compliance';
 
-/**
- * How much of the ledger a report reads.
- *
- * Reports are aggregate views: a total computed over a truncated window is
- * simply wrong, and wrong in the direction that under-states revenue. The list
- * screens keep their small default; this is deliberately large.
- */
-const REPORT_LEDGER_WINDOW = 5000;
+/** YYYY-MM-DD → DD/MM/YYYY, read as a calendar date. */
+const dayLabel = (d: string) => d.split('-').reverse().join('/');
+
+const percentageLabel = (n: number | null) => n === null ? '—' : `${n.toFixed(1)}%`;
+
+const MONTH_NAMES: Record<string, string> = {
+  '01': 'January', '02': 'February', '03': 'March', '04': 'April', '05': 'May', '06': 'June',
+  '07': 'July', '08': 'August', '09': 'September', '10': 'October', '11': 'November', '12': 'December',
+};
+
+/** "November 2026", as two pieces so the month name is translated on screen. */
+const MonthLabel: React.FC<{ monthKey: string }> = ({ monthKey }) => (
+  <>
+    {MONTH_NAMES[monthKey.slice(5, 7)] || monthKey.slice(5, 7)} {monthKey.slice(0, 4)}
+  </>
+);
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
   const [activeTab, setActiveTab] = useState<ReportTab>('period');
   const [periodSubTab, setPeriodSubTab] = useState<'daily' | 'monthly' | 'yearly'>('daily');
-  const [loading, setLoading] = useState<boolean>(true);
-
-  // Raw data from persistence
-  const [businesses, setBusinesses] = useState<any[]>([]);
-  const [assessments, setAssessments] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
-
-
-  useEffect(() => {
-    setLoading(true);
-
-    // Reports aggregate the WHOLE ledger, so they must not ride the list views'
-    // default window. `subscribeToPayments`/`subscribeToAssessments`/
-    // `subscribeToBusinesses` default to limit(100); every revenue figure on
-    // this screen was therefore computed from at most 100 documents, and once
-    // the ledger passed 100 receipts the totals silently under-reported while
-    // the underlying data was intact. Ask for a reporting-sized window instead.
-    const unsubBiz = subscribeToBusinesses((bList) => {
-      setBusinesses(bList || []);
-      setLoading(false);
-    }, undefined, REPORT_LEDGER_WINDOW);
-
-    const unsubAss = subscribeToAssessments((aList) => {
-      setAssessments(aList || []);
-    }, undefined, REPORT_LEDGER_WINDOW);
-
-    const unsubPay = subscribeToPayments((pList) => {
-      setPayments(pList || []);
-    }, undefined, REPORT_LEDGER_WINDOW);
-
-    return () => {
-      unsubBiz();
-      unsubAss();
-      unsubPay();
-    };
-  }, []);
-
-  const reloadData = async () => {
-    setLoading(true);
-    try {
-      const [bList, aList, pList] = await Promise.all([
-        getBusinesses(),
-        getAssessments(),
-        getPayments(),
-      ]);
-      setBusinesses(bList);
-      setAssessments(aList);
-      setPayments(pList);
-    } catch (err) {
-      console.error('[ReportsView] Error loading reporting datasets:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [reloadKey, setReloadKey] = useState(0);
+  const { businesses, assessments, payments, loading, error, cached } = useRevenueLedger(reloadKey);
+  const reloadData = () => setReloadKey((k) => k + 1);
 
   // Aggregated analytics
   const periodData = useMemo(() => computePeriodRevenue(payments), [payments]);
@@ -133,8 +83,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
   const taxTypeData = useMemo(() => computeTaxTypeRevenue(payments, assessments), [payments, assessments]);
   const complianceData = useMemo(() => computeComplianceSummary(businesses, assessments), [businesses, assessments]);
 
+  if (loading || error) return (
+    <div className="space-y-4" role="status">
+      <PageHeader title="Revenue Reports & Analytics" />
+      <p>{error || 'Chargement du registre complet…'}</p>
+      {error && <Button onClick={reloadData}>Réessayer</Button>}
+    </div>
+  );
+
   return (
     <div className="space-y-8 font-sans">
+      {cached && <p role="status" className="p-4 border border-warn rounded-xl">Données locales non confirmées par le serveur : les totaux peuvent être incomplets.</p>}
       
       {/* Page Header */}
       <PageHeader
@@ -319,20 +278,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs"
             >
               <Download className="w-3.5 h-3.5 text-blue-600" />
-              Download CSV ({periodSubTab})
+              Download CSV ({periodSubTab === 'daily' ? 'Daily' : periodSubTab === 'monthly' ? 'Monthly' : 'Annual'})
             </button>
           </div>
 
           {/* Metrics summary cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Revenue Collected</div>
               <div className="text-2xl font-bold text-slate-900 mt-1 font-mono">
                 {formatMoney(periodData.totalRevenueUSD)}
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Receipt Volume</div>
               <div className="text-2xl font-bold text-blue-700 mt-1 font-mono">
                 {periodData.totalTransactions} <span className="text-sm font-normal text-slate-500">Receipts</span>
@@ -342,17 +301,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Average per Receipt</div>
               <div className="text-2xl font-bold text-emerald-700 mt-1 font-mono">
                 {formatMoney((periodData.totalTransactions > 0 ? (periodData.totalRevenueUSD / periodData.totalTransactions) : 0))}
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Closed Periods</div>
               <div className="text-2xl font-bold text-purple-700 mt-1 font-mono">
-                {periodSubTab === 'daily' ? `${periodData.daily.length} Days` : periodSubTab === 'monthly' ? `${periodData.monthly.length} Months` : `${periodData.yearly.length} Fiscal Year(s)`}
+                {periodSubTab === 'daily' ? periodData.daily.length : periodSubTab === 'monthly' ? periodData.monthly.length : periodData.yearly.length}{' '}
+                <span className="text-sm font-normal text-slate-500">
+                  {periodSubTab === 'daily' ? 'Days' : periodSubTab === 'monthly' ? 'Months' : 'Years'}
+                </span>
               </div>
               <div className="text-[12px] text-slate-500 mt-1">
                 Data synchronized successfully
@@ -391,10 +353,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
             </p>
 
             <div className="space-y-3">
+              {/* Nothing collected yet: say so, instead of an empty card. */}
+              {(periodSubTab === 'daily' ? periodData.daily : periodSubTab === 'monthly' ? periodData.monthly : periodData.yearly)
+                .length === 0 && (
+                <p className="py-6 text-center text-xs text-slate-500">No revenue recorded yet.</p>
+              )}
               {periodSubTab === 'daily' && periodData.daily.slice(0, 10).map((d) => (
                 <div key={d.date} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800">{d.date}</span>
+                    <span className="font-semibold text-slate-800">{dayLabel(d.date)}</span>
                     <span className="font-mono text-slate-900 font-bold">
                       {formatMoney(d.totalUSD)} ({d.transactionCount} receipts)
                     </span>
@@ -402,7 +369,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                     <div 
                       className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.max(4, Math.min(100, d.percentageOfTotal))}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, d.percentageOfTotal))}%` }}
                     />
                   </div>
                 </div>
@@ -411,7 +378,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               {periodSubTab === 'monthly' && periodData.monthly.map((m) => (
                 <div key={m.monthKey} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800">{m.monthLabel}</span>
+                    <span className="font-semibold text-slate-800"><MonthLabel monthKey={m.monthKey} /></span>
                     <span className="font-mono text-slate-900 font-bold">
                       {formatMoney(m.totalUSD)} ({m.transactionCount} receipts)
                     </span>
@@ -419,7 +386,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                     <div 
                       className="bg-emerald-600 h-2.5 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.max(6, Math.min(100, m.percentageOfTotal))}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, m.percentageOfTotal))}%` }}
                     />
                   </div>
                 </div>
@@ -436,7 +403,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                     <div 
                       className="bg-purple-600 h-2.5 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.max(10, Math.min(100, y.percentageOfTotal))}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, y.percentageOfTotal))}%` }}
                     />
                   </div>
                 </div>
@@ -451,7 +418,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
             </h3>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold text-[12px]">
                     <th className="py-2.5 px-3">Period</th>
@@ -470,9 +437,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700 font-mono">
+                  {(periodSubTab === 'daily' ? periodData.daily : periodSubTab === 'monthly' ? periodData.monthly : periodData.yearly)
+                    .length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={periodSubTab === 'daily' ? 6 : periodSubTab === 'monthly' ? 5 : 4}
+                        className="py-8 px-3 text-center font-sans text-slate-500"
+                      >
+                        No revenue recorded yet.
+                      </td>
+                    </tr>
+                  )}
                   {periodSubTab === 'daily' && periodData.daily.map((d) => (
                     <tr key={d.date} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-3 font-sans font-semibold text-slate-900">{d.date}</td>
+                      <td className="py-3 px-3 font-sans font-semibold text-slate-900">{dayLabel(d.date)}</td>
                       <td className="py-3 px-3">{d.transactionCount}</td>
                       <td className="py-3 px-3 text-right text-emerald-700 font-bold">{formatMoney(d.totalUSD)}</td>
                       <td className="py-3 px-3 text-right text-slate-800">{formatMoney(d.cashUSD)}</td>
@@ -483,7 +461,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
 
                   {periodSubTab === 'monthly' && periodData.monthly.map((m) => (
                     <tr key={m.monthKey} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-3 font-sans font-semibold text-slate-900">{m.monthLabel}</td>
+                      <td className="py-3 px-3 font-sans font-semibold text-slate-900"><MonthLabel monthKey={m.monthKey} /></td>
                       <td className="py-3 px-3">{m.transactionCount}</td>
                       <td className="py-3 px-3 text-right text-emerald-700 font-bold">{formatMoney(m.totalUSD)}</td>
                       <td className="py-3 px-3 text-right text-slate-800">{formatMoney(m.averageTransactionUSD)}</td>
@@ -534,7 +512,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               return (
                 <div 
                   key={c.commune} 
-                  className={`bg-white rounded-xl border p-5 shadow-xs relative overflow-hidden ${
+                  className={`kpi-card kpi-report-card border p-5 relative overflow-hidden ${
                     isGoma ? 'border-blue-200 ring-1 ring-blue-100' : 'border-indigo-200 ring-1 ring-indigo-100'
                   }`}
                 >
@@ -603,7 +581,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
             </h3>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold text-[12px]">
                     <th className="py-2.5 px-3">Commune</th>
@@ -654,7 +632,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
           {/* Sector Bars */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {sectorData.map((s) => (
-              <div key={s.sector} className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
+              <div key={s.sector} className="kpi-card kpi-report-card p-5 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-slate-900">{s.sectorLabel}</span>
@@ -674,14 +652,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                 <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500">Collection Rate</span>
-                    <span className="font-bold text-slate-900 font-mono">{s.recoveryRatePercent.toFixed(1)}%</span>
+                    <span className="font-bold text-slate-900 font-mono">{percentageLabel(s.recoveryRatePercent)}</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                     <div 
                       className={`h-2 rounded-full ${
                         s.recoveryRatePercent >= 75 ? 'bg-emerald-600' : s.recoveryRatePercent >= 40 ? 'bg-amber-500' : 'bg-rose-500'
                       }`}
-                      style={{ width: `${Math.max(5, Math.min(100, s.recoveryRatePercent))}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, s.recoveryRatePercent))}%` }}
                     />
                   </div>
                 </div>
@@ -696,7 +674,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
             </h3>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold text-[12px]">
                     <th className="py-2.5 px-3">Economic Sector</th>
@@ -720,7 +698,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                         <span className={`px-2 py-0.5 rounded text-[12px] font-bold ${
                           s.recoveryRatePercent >= 75 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                         }`}>
-                          {s.recoveryRatePercent.toFixed(1)}%
+                          {percentageLabel(s.recoveryRatePercent)}
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-slate-800">{s.percentageOfTotalRevenue.toFixed(1)}%</td>
@@ -759,7 +737,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="premium-table w-full text-left text-xs">
                   <thead className="bg-slate-50/80 text-slate-600 font-semibold uppercase tracking-wider text-[12px] border-b border-slate-200">
                     <tr>
                       <th className="py-2.5 px-3">Head of Tax</th>
@@ -794,7 +772,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                           <span className={`px-2 py-0.5 rounded text-[12px] font-bold ${
                             t.recoveryRatePercent >= 75 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                           }`}>
-                            {t.recoveryRatePercent.toFixed(1)}%
+                            {percentageLabel(t.recoveryRatePercent)}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right font-bold text-slate-800">{t.percentageOfTotalRevenue.toFixed(1)}%</td>
@@ -831,17 +809,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
 
           {/* Indicators */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Tax Compliance Rate</div>
               <div className="text-2xl font-bold text-emerald-700 mt-1 font-mono">
-                {complianceData.complianceRatePercent.toFixed(1)}%
+                {percentageLabel(complianceData.complianceRatePercent)}
               </div>
               <div className="text-[12px] text-emerald-600 mt-1">
                 {complianceData.upToDateBusinesses} out of {complianceData.activeBusinesses} active businesses
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Overdue Businesses</div>
               <div className="text-2xl font-bold text-rose-700 mt-1 font-mono">
                 {complianceData.delinquentBusinesses} <span className="text-sm font-normal text-slate-500">Bus.</span>
@@ -851,14 +829,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Delinquent Receivables</div>
               <div className="text-2xl font-bold text-amber-700 mt-1 font-mono">
                 {formatMoney(complianceData.totalOverdueUSD)}
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="kpi-card kpi-report-card p-5">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Administrative Closures</div>
               <div className="text-2xl font-bold text-slate-900 mt-1 font-mono">
                 {complianceData.deregisteredBusinesses} <span className="text-sm font-normal text-slate-500">Ent.</span>
@@ -878,7 +856,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   <div key={c.commune} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="flex items-center justify-between text-xs mb-1">
                       <strong className="text-slate-900 font-bold">Commune of {c.commune}</strong>
-                      <span className="font-bold text-emerald-700 font-mono">{c.complianceRate.toFixed(1)}% in compliance</span>
+                      <span className="font-bold text-emerald-700 font-mono">{percentageLabel(c.complianceRate)} in compliance</span>
                     </div>
                     <div className="flex items-center justify-between text-[12px] text-slate-500 mt-1">
                       <span>Total: {c.total} | Actives: {c.active}</span>
@@ -896,7 +874,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
                   <div key={s.sizeClass} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="flex items-center justify-between text-xs mb-1">
                       <strong className="text-slate-900 font-bold">{s.sizeLabel}</strong>
-                      <span className="font-bold text-emerald-700 font-mono">{s.complianceRate.toFixed(1)}%</span>
+                      <span className="font-bold text-emerald-700 font-mono">{percentageLabel(s.complianceRate)}</span>
                     </div>
                     <div className="flex items-center justify-between text-[12px] text-slate-500 mt-1">
                       <span>Total: {s.total} | Actives: {s.active}</span>
@@ -918,7 +896,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ userRole }) => {
             </h3>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="premium-table w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold text-[12px]">
                     <th className="py-2.5 px-3">Business</th>

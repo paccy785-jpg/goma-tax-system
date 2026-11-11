@@ -1103,7 +1103,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
           <div className="w-full overflow-x-auto">
             {/* The DGI roll has one more column: it is laid out wider (it scrolls sideways). */}
             <table
-              className={`w-full ${rollColumns === 'dgi' ? 'min-w-[1800px]' : 'min-w-[1560px]'} table-fixed text-left border-collapse font-sans`}
+              className={`premium-table w-full ${rollColumns === 'dgi' ? 'min-w-[1800px]' : 'min-w-[1560px]'} table-fixed text-left border-collapse font-sans`}
             >
               <thead>
                 <tr className="border-b border-line bg-surface2/50">

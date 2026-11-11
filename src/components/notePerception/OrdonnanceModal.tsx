@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Stamp, X, Loader2, Lock, RotateCcw, ScrollText, UserRound } from 'lucide-react';
+import { Stamp, X, Loader2, Lock, RotateCcw, UserRound } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import {
@@ -12,8 +12,6 @@ import { parseAmount } from '../../utils/taxCalc';
 import { formatMoney } from '../../utils/money';
 import { todayDateString } from '../../utils/date';
 import { Button } from '../ui';
-import { TaxpayerSearch } from '../transfer/TaxpayerSearch';
-import { Business } from '../../types';
 
 const fieldClass =
   'w-full px-3 py-2.5 text-sm rounded-[10px] border bg-surface text-ink placeholder:text-faint focus:border-accent focus:outline-none transition-premium font-sans';
@@ -73,21 +71,25 @@ const DateField: React.FC<
 
 const BAD_DATE = "Date invalide — ce jour n'existe pas dans le calendrier (ex. 31/04).";
 
+/** The redevable a note was issued to, as the taxateur recorded it. */
+const redevableOf = (n: NotePerception) => (n.taxateur?.contribuableName || '').trim() || 'Contribuable non renseigné';
+
+/** One line of the Contribuable dropdown: who, which note, how much, when taxed. */
+const noteLabel = (n: NotePerception) =>
+  `${redevableOf(n)} — ${n.taxateur.numeroFacture} — ${formatMoney(n.taxateur.montantUSD)} — taxée le ${frDay(dateTaxationOf(n))}`;
+
 export const OrdonnanceModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   /** Every note de perception; only those not yet ordonnancées can be picked. */
   notes: NotePerception[];
-  /** The taxpayer register, searched at the top of the card. */
-  taxpayers: Business[];
-}> = ({ isOpen, onClose, notes, taxpayers }) => {
+}> = ({ isOpen, onClose, notes }) => {
   const { userProfile } = useAuth();
   const { showToast } = useToast();
   const today = todayDateString();
 
   const awaiting = useMemo(() => notes.filter((n) => !n.ordonnateur), [notes]);
 
-  const [contribuable, setContribuable] = useState<Business | null>(null);
   const [noteId, setNoteId] = useState('');
   const [avis, setAvis] = useState('');
   const [montant, setMontant] = useState('');
@@ -111,27 +113,6 @@ export const OrdonnanceModal: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose, saving]);
 
-  /**
-   * The notes offered once a taxpayer is chosen: theirs, then any older note
-   * saved before notes recorded a taxpayer (it cannot be matched, so it is
-   * listed apart rather than hidden).
-   */
-  const forTaxpayer = useMemo(
-    () => (contribuable ? awaiting.filter((n) => n.taxateur.contribuableId === contribuable.id) : awaiting),
-    [awaiting, contribuable]
-  );
-  const unattributed = useMemo(
-    () => (contribuable ? awaiting.filter((n) => !n.taxateur.contribuableId) : []),
-    [awaiting, contribuable]
-  );
-
-  // A different taxpayer drops a note that belongs to someone else.
-  useEffect(() => {
-    if (!contribuable || !noteId) return;
-    const n = awaiting.find((x) => x.id === noteId);
-    if (n?.taxateur.contribuableId && n.taxateur.contribuableId !== contribuable.id) setNoteId('');
-  }, [contribuable, noteId, awaiting]);
-
   const note = awaiting.find((n) => n.id === noteId) || null;
   const dateTaxation = note ? dateTaxationOf(note) : '';
 
@@ -143,8 +124,7 @@ export const OrdonnanceModal: React.FC<{
 
   const errors = useMemo(
     () => ({
-      contribuable: !contribuable ? 'Sélectionnez le contribuable.' : '',
-      note: !note ? "Sélectionnez la note de perception à ordonnancer." : '',
+      note: !note ? 'Sélectionnez le contribuable et sa note de perception.' : '',
       avis: !avis.trim() ? "Saisissez l'avis de l'ordonnateur." : '',
       montant: !montant.trim()
         ? 'Saisissez le montant ordonné.'
@@ -171,7 +151,7 @@ export const OrdonnanceModal: React.FC<{
               : '',
       nom: !nom.trim() ? "Saisissez le nom de l'ordonnateur." : '',
     }),
-    [contribuable, note, avis, montant, montantUSD, auPlusTard, auPlusTardBad, dateOrd, dateOrdBad, today, dateTaxation, nom]
+    [note, avis, montant, montantUSD, auPlusTard, auPlusTardBad, dateOrd, dateOrdBad, today, dateTaxation, nom]
   );
   const valid = Object.values(errors).every((e) => !e);
   const err = (k: keyof typeof errors) => (showErrors ? errors[k] : '');
@@ -180,7 +160,6 @@ export const OrdonnanceModal: React.FC<{
   if (!isOpen) return null;
 
   const reset = () => {
-    setContribuable(null);
     setNoteId('');
     setAvis('');
     setMontant('');
@@ -194,7 +173,7 @@ export const OrdonnanceModal: React.FC<{
 
   const save = async () => {
     setShowErrors(true);
-    if (!valid || !note || !contribuable) return;
+    if (!valid || !note) return;
     if (!userProfile) {
       showToast("Connectez-vous avant d'enregistrer une ordonnance.", 'error', 'Non connecté');
       return;
@@ -204,9 +183,10 @@ export const OrdonnanceModal: React.FC<{
       await addOrdonnance(
         note,
         {
-          contribuableId: contribuable.id,
-          contribuableName: contribuable.businessName || '',
-          contribuableNif: contribuable.nif || '',
+          // The taxpayer the taxateur issued the note to.
+          contribuableId: note.taxateur.contribuableId || '',
+          contribuableName: note.taxateur.contribuableName || '',
+          contribuableNif: note.taxateur.contribuableNif || '',
           avis,
           montantOrdonneUSD: montantUSD,
           paiementAuPlusTardLe: auPlusTard,
@@ -266,32 +246,15 @@ export const OrdonnanceModal: React.FC<{
 
         {/* Body */}
         <div className="p-6 space-y-5 overflow-y-auto">
-          {/* ---- Who the ordonnance is for ---- */}
+          {/* ---- Contribuable: the notes de perception the taxateur has filled
+               in and that are not yet ordonnancées ---- */}
           <div className="grid grid-cols-[28px_1fr] gap-3 items-start">
             <span className="mt-0.5 w-7 h-7 rounded-[8px] bg-accent-soft text-accent flex items-center justify-center">
               <UserRound className="w-3.5 h-3.5" />
             </span>
-            <TaxpayerSearch
-              id="ord-contribuable"
-              label="Contribuable"
-              hint="Le contribuable concerné par l'ordonnance — recherché dans le registre des contribuables."
-              taxpayers={taxpayers}
-              value={contribuable}
-              onChange={setContribuable}
-              disabled={saving}
-              autoFocus
-              error={err('contribuable')}
-            />
-          </div>
-
-          {/* ---- Which note is being ordered ---- */}
-          <div className="grid grid-cols-[28px_1fr] gap-3 items-start">
-            <span className="mt-0.5 w-7 h-7 rounded-[8px] bg-accent-soft text-accent flex items-center justify-center">
-              <ScrollText className="w-3.5 h-3.5" />
-            </span>
             <div className="space-y-1.5 min-w-0">
               <label htmlFor="ord-note" className="text-xs font-semibold text-ink">
-                Note de perception
+                Contribuable
               </label>
               {awaiting.length === 0 ? (
                 <p className="p-3 rounded-[10px] bg-warn/10 border border-warn/25 text-[12px] text-ink leading-relaxed">
@@ -302,59 +265,24 @@ export const OrdonnanceModal: React.FC<{
                 <select
                   id="ord-note"
                   value={noteId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setNoteId(id);
-                    // Picking a note first fills in the taxpayer it was issued to.
-                    const picked = awaiting.find((x) => x.id === id);
-                    const tpId = picked?.taxateur.contribuableId;
-                    if (!contribuable && tpId) {
-                      const tp = taxpayers.find((t) => t.id === tpId);
-                      if (tp) setContribuable(tp);
-                    }
-                  }}
+                  onChange={(e) => setNoteId(e.target.value)}
                   disabled={saving}
+                  autoFocus
                   className={`${fieldClass} ${border('note')} cursor-pointer`}
                 >
-                  <option value="">Sélectionner la note de perception…</option>
-                  {!contribuable
-                    ? awaiting.map((n) => (
-                        <option key={n.id} value={n.id}>
-                          {n.taxateur.numeroFacture} — {formatMoney(n.taxateur.montantUSD)} — {n.taxateur.nomAgent}
-                        </option>
-                      ))
-                    : (
-                      <>
-                        {forTaxpayer.length > 0 && (
-                          <optgroup label={`Contribuable : ${contribuable.businessName}`}>
-                            {forTaxpayer.map((n) => (
-                              <option key={n.id} value={n.id}>
-                                {n.taxateur.numeroFacture} — {formatMoney(n.taxateur.montantUSD)} — {n.taxateur.nomAgent}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {unattributed.length > 0 && (
-                          <optgroup label="Notes sans contribuable enregistré">
-                            {unattributed.map((n) => (
-                              <option key={n.id} value={n.id}>
-                                {n.taxateur.numeroFacture} — {formatMoney(n.taxateur.montantUSD)} — {n.taxateur.nomAgent}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </>
-                    )}
+                  <option value="">— Sélectionner —</option>
+                  {awaiting.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {noteLabel(n)}
+                    </option>
+                  ))}
                 </select>
-              )}
-              {contribuable && awaiting.length > 0 && forTaxpayer.length === 0 && unattributed.length === 0 && (
-                <p className="text-[12px] text-muted">
-                  Aucune note de perception de {contribuable.businessName} n'attend d'ordonnancement.
-                </p>
               )}
               {err('note') && awaiting.length > 0 && <p className="text-[12px] text-danger">{err('note')}</p>}
               {note && (
                 <div className="rounded-[10px] bg-surface2/60 border border-line px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+                  <span className="text-muted">Note de perception</span>
+                  <span className="text-ink font-mono text-right truncate">{note.taxateur.numeroFacture}</span>
                   <span className="text-muted">Article budgétaire</span>
                   <span className="text-ink font-mono text-right truncate">{note.taxateur.articleBudgetaire}</span>
                   <span className="text-muted">Arrêté numéro</span>

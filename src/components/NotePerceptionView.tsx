@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { FlaskConical, Loader2, Plus, ScrollText, Search, SearchX, Stamp, X } from 'lucide-react';
+import { Plus, ScrollText, Search, SearchX, Stamp, X } from 'lucide-react';
 import { AddressRegistry, Business, UserRole } from '../types';
 import { subscribeToAddressRegistry } from '../services/addressService';
 import { subscribeToBusinesses } from '../services/dbService';
@@ -17,11 +17,6 @@ import { OrdonnanceModal } from './notePerception/OrdonnanceModal';
 import { noteMatches, searchTokens } from './notePerception/noteSearch';
 import { printNotePerception } from './notePerception/printNotePerception';
 import { NotePerceptionPrintSheet } from './notePerception/NotePerceptionPrintSheet';
-import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../contexts/ToastContext';
-// TEMPORARY — demonstration data (remove with its button below).
-import { isDemoNote, seedDemoNotesPerception } from './notePerception/demoNotesPerception';
-
 /** Subtabs of the Note de Perception page — one per service filling the note. */
 type NpSubTab = 'taxateur' | 'ordonnateur';
 
@@ -134,33 +129,6 @@ export const NotePerceptionView: React.FC<{ userRole: UserRole }> = ({ userRole 
   const found = useMemo(() => (searching ? notes.filter((n) => noteMatches(n, tokens)) : notes), [notes, tokens, searching]);
   const clearSearch = useCallback(() => setSearch(''), []);
 
-  // TEMPORARY — the "Ajouter des données de démonstration" button (Admin only,
-  // shown until the sample notes exist).
-  const { userProfile } = useAuth();
-  const { showToast } = useToast();
-  const [seeding, setSeeding] = useState(false);
-  const hasDemo = useMemo(() => notes.some(isDemoNote), [notes]);
-  const seedDemo = async () => {
-    if (!userProfile || seeding) return;
-    setSeeding(true);
-    try {
-      const r = await seedDemoNotesPerception(taxpayers, notes, {
-        uid: userProfile.uid,
-        displayName: userProfile.displayName,
-        role: userProfile.role,
-      });
-      showToast(
-        `${r.created} notes de perception de démonstration ajoutées, dont ${r.paid} payées.`,
-        'success',
-        'Données de démonstration'
-      );
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Impossible d'ajouter les données de démonstration.", 'error', 'Échec');
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   const existingNumeros = useMemo(
     () => new Set(notes.map((n) => normalizeNumero(n.taxateur?.numeroFacture || ''))),
     [notes]
@@ -180,17 +148,6 @@ export const NotePerceptionView: React.FC<{ userRole: UserRole }> = ({ userRole 
             ) : undefined
           ) : subTab === 'taxateur' ? (
             <div className="flex items-center gap-2">
-              {userRole === 'Admin' && !loading && !hasDemo && (
-                <Button
-                  variant="ghost"
-                  size="md"
-                  icon={seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
-                  onClick={() => void seedDemo()}
-                  disabled={seeding || taxpayers.length === 0}
-                >
-                  Ajouter des données de démonstration
-                </Button>
-              )}
               {canAdd && (
                 <Button variant="primary" size="md" icon={<Plus className="w-4 h-4" />} onClick={() => setOpen(true)}>
                   Ajouter une note de perception
@@ -297,7 +254,7 @@ export const NotePerceptionView: React.FC<{ userRole: UserRole }> = ({ userRole 
       </div>
 
       {canAdd && <NotePerceptionModal isOpen={open} onClose={close} existingNumeros={existingNumeros} taxpayers={taxpayers} />}
-      {canAdd && <OrdonnanceModal isOpen={ordOpen} onClose={closeOrd} notes={notes} taxpayers={taxpayers} />}
+      {canAdd && <OrdonnanceModal isOpen={ordOpen} onClose={closeOrd} notes={notes} />}
     </div>
   );
 };

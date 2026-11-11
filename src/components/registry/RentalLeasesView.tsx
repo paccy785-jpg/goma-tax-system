@@ -38,7 +38,7 @@ import { subscribeToParcels, subscribeToParcelsByOwner } from '../../services/pa
 import { subscribeToBusinesses } from '../../services/dbService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { Button, EmptyState, Panel } from '../ui';
+import { Button, EmptyState, Panel, MetricStrip } from '../ui';
 import { usd } from './registryBits';
 import { parseAmount } from '../../utils/taxCalc';
 
@@ -125,10 +125,10 @@ function parcelOptionLabel(p: PropertyParcel): string {
  * into a scrollbar, and no column carries more empty space than another.
  */
 const LEASE_COLUMNS = {
-  number: 'w-[5%]',
-  tenants: 'w-[12%]',
+  number: 'w-[7%]',
+  tenants: 'w-[11%]',
   nature: 'w-[7%]',
-  ville: 'w-[8%]',
+  ville: 'w-[7%]',
   commune: 'w-[8%]',
   quartier: 'w-[10%]',
   avenue: 'w-[9%]',
@@ -673,20 +673,24 @@ export const RentalLeasesView: React.FC<RentalLeasesViewProps> = ({ userRole }) 
   return (
     <div className="space-y-8 font-sans">
       {/* ---- Summary ---------------------------------------------------- */}
-      <div className="border-y border-line my-6 grid grid-cols-1 sm:grid-cols-2 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-line bg-surface/40">
-        <RentalStat
-          label="Bailleurs enregistrés"
-          value={roll.totalLeases.toLocaleString('en-US')}
-          subline={`${roll.totalTenants} locataire${roll.totalTenants === 1 ? '' : 's'} déclaré${roll.totalTenants === 1 ? '' : 's'}`}
-          icon={<FileCheck2 className="w-4 h-4 text-accent" />}
-        />
-        <RentalStat
-          label="Total revenu brut"
-          value={usd(roll.totalGrossUSD)}
-          subline="loyers × mois loués"
-          icon={<Landmark className="w-4 h-4 text-warn" />}
-        />
-      </div>
+      <MetricStrip
+        columns={2}
+        items={[
+          {
+            label: 'Locataires enregistrés',
+            value: roll.totalTenants.toLocaleString('en-US'),
+            subline: `${roll.totalLeases} document${roll.totalLeases === 1 ? '' : 's'} de bail`,
+            icon: <FileCheck2 className="w-4 h-4 text-accent" />,
+          },
+          {
+            label: 'Total revenu brut',
+            value: usd(roll.totalGrossUSD),
+            subline: 'loyers × mois loués',
+            trendType: 'warn',
+            icon: <Landmark className="w-4 h-4 text-warn" />,
+          },
+        ]}
+      />
 
       {/* ---- Lease register --------------------------------------------- */}
       <Panel
@@ -757,13 +761,12 @@ export const RentalLeasesView: React.FC<RentalLeasesViewProps> = ({ userRole }) 
           </div>
         </div>
 
-        {/* Table — no minimum width, so it always fits the panel in one view.
-            `overflow-x-auto` stays as a floor for genuinely tiny screens. */}
+        {/* Keep the full headings readable; narrow screens scroll inside the panel. */}
         <div className="w-full overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse font-sans">
+          <table className="premium-table w-full min-w-[1000px] table-fixed text-left border-collapse font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/50">
-                <th className={`${LEASE_COLUMNS.number} text-[11px] font-bold uppercase tracking-[0.07em] leading-tight text-faint px-2 py-3.5 align-middle text-left overflow-hidden`}>
+                <th className={`${LEASE_COLUMNS.number} text-[11px] font-bold uppercase tracking-[0.07em] leading-tight text-faint px-2 py-3.5 align-middle text-left whitespace-nowrap`}>
                   Numero
                 </th>
                 <th className={`${LEASE_COLUMNS.tenants} text-[11px] font-bold uppercase tracking-[0.07em] leading-tight text-faint px-2 py-3.5 align-middle text-left overflow-hidden`}>
@@ -1950,31 +1953,6 @@ const LeaseTermsEditor: React.FC<{
     </div>
   );
 };
-
-const RentalStat: React.FC<{
-  label: string;
-  value: string;
-  subline?: string;
-  icon?: React.ReactNode;
-  emphasis?: boolean;
-}> = ({ label, value, subline, icon, emphasis }) => (
-  <div className="py-4.5 px-6 flex flex-col justify-between">
-    <div className="flex items-center justify-between gap-2 mb-1.5">
-      <span className="text-[12px] font-bold uppercase tracking-wider text-muted font-sans">
-        {label}
-      </span>
-      {icon && <span className="text-muted/70">{icon}</span>}
-    </div>
-    <div
-      className={`font-display font-bold text-ink leading-tight tabular-nums tracking-tight ${
-        emphasis ? 'text-[23px]' : 'text-[25px]'
-      }`}
-    >
-      {value}
-    </div>
-    {subline && <div className="mt-1.5 text-[12px] text-muted truncate font-sans">{subline}</div>}
-  </div>
-);
 
 /**
  * File the next période de location of a tenancy already on the register.

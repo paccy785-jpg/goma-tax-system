@@ -229,12 +229,12 @@ export async function addTaxCalculation(
 export function subscribeToTaxCalculations(
   onData: (rows: TaxCalculation[]) => void,
   onError?: (err: unknown) => void,
-  limitCount = 300
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, TAX_CALCULATIONS_COLLECTION),
     orderBy('createdAt', 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   return onSnapshot(
     q,

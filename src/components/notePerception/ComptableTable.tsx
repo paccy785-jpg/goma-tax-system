@@ -17,7 +17,9 @@ export const ComptableTable: React.FC<{
   onAdd?: () => void;
   /** Opens the payment card on one note awaiting payment. */
   onFill?: (n: NotePerception) => void;
-}> = ({ notes, loading, onAdd, onFill }) => {
+  /** Opens "Confirmer le paiement" on a note the comptable has filled in. */
+  onConfirm?: (n: NotePerception) => void;
+}> = ({ notes, loading, onAdd, onFill, onConfirm }) => {
   const count = notes.filter((n) => !!n.comptable).length;
   const awaiting = notes.filter((n) => !!n.taxateur && !!n.ordonnateur && !n.comptable).length;
 
@@ -34,6 +36,7 @@ export const ComptableTable: React.FC<{
       <ComptableSectionTable
         notes={loading ? [] : notes}
         onFill={onFill}
+        onConfirm={onConfirm}
         placeholder={
           loading ? (
             <div className="px-6 py-10 text-center text-xs text-muted">Chargement…</div>

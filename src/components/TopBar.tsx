@@ -33,7 +33,7 @@ const VIEW_LABELS: Record<NavigationItem, string> = {
   declarations: 'Tax Declarations',
   'taxpayer-profile': 'Tax Payer Profile',
   transfer: 'Property Transfer',
-  'bank-agent': 'Bank Agent',
+  'bank-agent': 'Accountant',
   'note-perception': 'Note de Perception',
   notifications: 'Notifications',
   assessments: 'Tax Assessments',

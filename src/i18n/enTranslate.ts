@@ -205,6 +205,7 @@ const PATTERNS: [RegExp, (...m: string[]) => string][] = [
   [/^(\d+) sur (\d+) transferts?$/, (_, a, b) => `${a} of ${b} ${pl(b, 'transfer', 'transfers')}`],
   [/^(\d+) transferts? enregistrés?$/, (_, c) => `${c} ${pl(c, 'transfer', 'transfers')} recorded`],
   [/^(\d+) propriétés? déclarées?$/, (_, c) => `${c} declared ${pl(c, 'property', 'properties')}`],
+  [/^(\d+) documents? de bail$/, (_, c) => `${c} lease ${pl(c, 'document', 'documents')}`],
   [/^(\d+) locataires? déclarés?$/, (_, c) => `${c} declared ${pl(c, 'tenant', 'tenants')}`],
   [/^(\d+) contribuables?$/, (_, c) => `${c} ${pl(c, 'taxpayer', 'taxpayers')}`],
   [/^(\d+) (?:bail|baux|bails) — exercice (\d{4})$/, (_, c, y) => `${c} ${LEASES(c)} — fiscal year ${y}`],

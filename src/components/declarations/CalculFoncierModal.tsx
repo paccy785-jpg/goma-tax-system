@@ -715,7 +715,7 @@ export const CalculFoncierModal: React.FC<CalculFoncierModalProps> = ({ isOpen, 
               <div className="px-3.5 py-2 bg-surface2/60 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
                 Récapitulatif
               </div>
-              <table className="w-full table-fixed text-left">
+              <table className="premium-table w-full table-fixed text-left">
                 <tbody className="divide-y divide-line">
                   {lines.map((l, i) => {
                     const rang = rangs.find((r) => r.id === l.rang);

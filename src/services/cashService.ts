@@ -29,6 +29,7 @@ import { logAuditEvent } from './dbService';
 import { intentId } from './idempotency';
 import { formatMoney } from '../utils/money';
 import { roundMoney } from '../utils/frenchNumber';
+import { requireMoney } from '../utils/paymentAmounts';
 import { describeCashVariance, hasCashVariance } from '../utils/cashVariance';
 
 const CASH_SESSIONS_COLLECTION = 'cashSessions';
@@ -63,13 +64,13 @@ export async function getCashSessions(): Promise<CashSession[]> {
 export function subscribeToCashSessions(
   onData: (sessions: CashSession[]) => void,
   onError?: (err: any) => void,
-  limitCount: number = 1000
+  limitCount: number | null = null
 ): Unsubscribe {
   console.log(`[Firestore Listener] Subscribed to cashSessions (limit: ${limitCount})`);
   const q = query(
     collection(db, CASH_SESSIONS_COLLECTION),
     orderBy('openedAt', 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
 
   const unsubscribe = onSnapshot(
@@ -116,6 +117,7 @@ export interface OpenCashSessionParams {
  * Open a new cashier shift session
  */
 export async function openCashSession(params: OpenCashSessionParams): Promise<CashSession> {
+  requireMoney(params.openingBalanceUSD, 'Solde d’ouverture', true);
   // Prevent duplicate open shifts for the same cashier.
   const existing = await getActiveCashSession(params.cashierId);
   if (existing) {
@@ -199,60 +201,29 @@ export async function closeCashSession(
   sessionId: string, 
   params: CloseCashSessionParams
 ): Promise<CashSession> {
-  const all = await getCashSessions();
-  const session = all.find((s) => s.id === sessionId);
-  if (!session) {
-    throw new Error(`Cash session not found (${sessionId}).`);
-  }
-  // Guard: only an OPEN shift can be closed. Without this, re-closing an
-  // already closed/approved/deposited session reverted the supervisor sign-off
-  // and moved a deposited shift back to "pending_audit", corrupting custody
-  // and deposit records.
-  if (session.status !== 'open') {
-    throw new Error(`Cash session ${session.sessionNumber || sessionId} cannot be closed — it is already "${session.status}".`);
-  }
-
+  const countedUSD = requireMoney(params.countedCashUSD, 'Comptage physique', true);
   const now = new Date().toISOString();
-  const countedUSD = Number(params.countedCashUSD) || 0;
-
-  const expectedUSD = (session.openingBalanceUSD || 0) + (session.totalPaymentsCashUSD || 0);
-
-  const varianceUSD = roundMoney(countedUSD - expectedUSD);
-
-  const hasVariance = hasCashVariance(varianceUSD);
-
-  const updatedSession: CashSession = {
-    ...session,
-    closedAt: now,
-    countedCashUSD: countedUSD,
-    expectedCashUSD: expectedUSD,
-    varianceUSD,
-    hasVariance,
-    closingNotes: params.closingNotes || '',
-    varianceExplanation: hasVariance 
-      ? (params.varianceExplanation || `Variance observed: ${varianceUSD < 0 ? 'Shortage' : 'Surplus'} of ${formatMoney(Math.abs(varianceUSD))}.`) 
-      : undefined,
-    status: 'closed',
-    cashStatus: 'pending_audit',
-    updatedAt: now,
-  };
-
-  try {
-    await updateDoc(doc(db, CASH_SESSIONS_COLLECTION, sessionId), {
-      closedAt: updatedSession.closedAt,
-      countedCashUSD: updatedSession.countedCashUSD,
-      expectedCashUSD: updatedSession.expectedCashUSD,
-      varianceUSD: updatedSession.varianceUSD,
-      hasVariance: updatedSession.hasVariance,
-      closingNotes: updatedSession.closingNotes || '',
-      varianceExplanation: updatedSession.varianceExplanation || '',
-      status: 'closed',
-      cashStatus: 'pending_audit',
-      updatedAt: now,
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `${CASH_SESSIONS_COLLECTION}/${sessionId}`);
-  }
+  const { session, updatedSession } = await runTransaction(db, async (transaction) => {
+    const ref = doc(db, CASH_SESSIONS_COLLECTION, sessionId);
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) throw new Error(`Cash session not found (${sessionId}).`);
+    const session = { ...snap.data(), id: snap.id } as CashSession;
+    if (session.status !== 'open' || session.cashierId !== params.cashierId) {
+      throw new Error('Seul le caissier de cette session ouverte peut la clôturer.');
+    }
+    const expectedUSD = roundMoney((session.openingBalanceUSD || 0) + (session.totalPaymentsCashUSD || 0));
+    const varianceUSD = roundMoney(countedUSD - expectedUSD);
+    const hasVariance = hasCashVariance(varianceUSD);
+    const changes = {
+      closedAt: now, countedCashUSD: countedUSD, expectedCashUSD: expectedUSD,
+      varianceUSD, hasVariance, closingNotes: params.closingNotes || '',
+      varianceExplanation: hasVariance ? (params.varianceExplanation || '') : '',
+      status: 'closed' as const, cashStatus: 'pending_audit' as const, updatedAt: now,
+    };
+    transaction.update(ref, changes);
+    return { session, updatedSession: { ...session, ...changes } };
+  });
+  const { expectedCashUSD: expectedUSD, varianceUSD, hasVariance } = updatedSession;
 
   // Log to Audit Trail
   const varianceDesc = describeCashVariance(varianceUSD, updatedSession.varianceExplanation);
@@ -283,52 +254,24 @@ export async function approveCashSession(
   supervisor: { uid: string; displayName: string; role: UserRole },
   supervisorNotes?: string
 ): Promise<CashSession> {
-  const all = await getCashSessions();
-  const session = all.find((s) => s.id === sessionId);
-  if (!session) {
-    throw new Error(`Session not found (${sessionId}).`);
-  }
-  // Authorisation is not the UI's to grant: a hidden button must not be the
-  // only thing standing between a Cashier and signing off their own shift.
   if (supervisor.role !== 'Admin' && supervisor.role !== 'Supervisor') {
     throw new Error('Only a Supervisor or Administrator may approve a cash shift.');
   }
-  // Guard: only a CLOSED shift can be approved. Approving an already-approved
-  // session re-ran the sign-off (second audit entry, overwritten approver), and
-  // approving a still-open session pushed it to custody with no physical count.
-  if (session.status === 'approved') {
-    throw new Error(`Session ${session.sessionNumber || sessionId} has already been approved.`);
-  }
-  if (session.status !== 'closed') {
-    throw new Error(`Only closed shifts can be approved — session ${session.sessionNumber || sessionId} is "${session.status}".`);
-  }
-
   const now = new Date().toISOString();
-
-  const updatedSession: CashSession = {
-    ...session,
-    status: 'approved',
-    approvedBy: supervisor.uid,
-    approvedByName: supervisor.displayName,
-    approvedAt: now,
-    supervisorNotes: supervisorNotes || 'Cash shift approved and physical cash received into vault custody.',
-    cashStatus: 'in_custody',
-    updatedAt: now,
-  };
-
-  try {
-    await updateDoc(doc(db, CASH_SESSIONS_COLLECTION, sessionId), {
-      status: 'approved',
-      approvedBy: supervisor.uid,
-      approvedByName: supervisor.displayName,
-      approvedAt: now,
-      supervisorNotes: updatedSession.supervisorNotes,
-      cashStatus: 'in_custody',
-      updatedAt: now,
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `${CASH_SESSIONS_COLLECTION}/${sessionId}`);
-  }
+  const { session, updatedSession } = await runTransaction(db, async (transaction) => {
+    const ref = doc(db, CASH_SESSIONS_COLLECTION, sessionId);
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) throw new Error(`Session not found (${sessionId}).`);
+    const session = { ...snap.data(), id: snap.id } as CashSession;
+    if (session.status !== 'closed') throw new Error('Only closed shifts can be approved.');
+    const changes = {
+      status: 'approved' as const, approvedBy: supervisor.uid, approvedByName: supervisor.displayName,
+      approvedAt: now, supervisorNotes: supervisorNotes || '',
+      cashStatus: 'in_custody' as const, updatedAt: now,
+    };
+    transaction.update(ref, changes);
+    return { session, updatedSession: { ...session, ...changes } };
+  });
 
   // Log to Audit Trail
   await logAuditEvent(
@@ -362,7 +305,7 @@ export async function linkPaymentToCashSession(
   try {
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(sessionRef);
-      if (!snap.exists()) return;
+      if (!snap.exists()) throw new Error('Cash session not found.');
       const session = snap.data() as CashSession;
 
       const currentPaymentIds = session.paymentIds || [];
@@ -370,6 +313,7 @@ export async function linkPaymentToCashSession(
       // (e.g. a retry after a failed attempt), do not increment the running
       // totals a second time.
       if (currentPaymentIds.includes(payment.id)) return;
+      if (session.status !== 'open') throw new Error('Cannot add a payment to a closed cash session.');
 
       const isCash = payment.paymentMethod === 'Cash_Guichet';
       const usdAmount = payment.amountPaidUSD || 0;
@@ -486,6 +430,7 @@ export interface RecordTreasuryDepositParams {
 export async function recordTreasuryDeposit(
   params: RecordTreasuryDepositParams
 ): Promise<TreasuryDeposit> {
+  requireMoney(params.depositAmountUSD, 'Dépôt');
   const now = new Date();
   const dateStr = todayDateString().replace(/-/g, '');
   const depositId = intentId('dep', 'cash.treasuryDeposit', [
@@ -506,7 +451,7 @@ export async function recordTreasuryDeposit(
   const allSessions = await getCashSessions();
   const eligibleSessionIds: string[] = [];
   const skippedSessionIds: string[] = [];
-  for (const sessId of params.sessionIds || []) {
+  for (const sessId of new Set(params.sessionIds || [])) {
     const s = allSessions.find((item) => item.id === sessId);
     if (s && s.cashStatus === 'in_custody') {
       eligibleSessionIds.push(sessId);
@@ -578,7 +523,7 @@ export async function recordTreasuryDeposit(
       // them here, at the trust boundary.
       const declaredUSD = roundMoney(Number(params.depositAmountUSD) || 0);
       const archivedUSD = roundMoney(claimedCashUSD);
-      if (Math.abs(declaredUSD - archivedUSD) > 0.011) {
+      if (declaredUSD !== archivedUSD) {
         throw new Error(
           `Deposit amount ${formatMoney(declaredUSD)} does not match the cash held by the selected shifts (${formatMoney(archivedUSD)}). ` +
           'Re-select the shifts and re-enter the amount from the counted cash.'

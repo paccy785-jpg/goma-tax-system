@@ -69,13 +69,13 @@ const FONCIER_COLUMNS = {
   nature: 'w-[7%]',
   ville: 'w-[9%]',
   commune: 'w-[9%]',
-  quartier: 'w-[9%]',
+  quartier: 'w-[11%]',
   avenue: 'w-[9%]',
   numero: 'w-[8%]',
   rang: 'w-[6%]',
-  usage: 'w-[9%]',
+  usage: 'w-[8%]',
   mesure: 'w-[8%]',
-  taux: 'w-[8%]',
+  taux: 'w-[7%]',
   montant: 'w-[9%]',
   total: 'w-[9%]',
 } as const;
@@ -159,7 +159,7 @@ export const LocatifCalcTable: React.FC<{
   const widths = showContribuable ? CALC_COLUMNS : CALC_COLUMNS_NO_PARTY;
   return (
           <div className="w-full overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse font-sans">
+            <table className="premium-table w-full table-fixed text-left border-collapse font-sans">
               <thead>
                 <tr className="border-b border-line bg-surface2/50">
                   {headers.map((h, i) => (
@@ -298,7 +298,7 @@ export const FoncierCalcTable: React.FC<{
   matchedVia?: Map<string, string>;
 }> = ({ rows, matchedVia = NO_MATCHES }) => (
             <div className="w-full overflow-x-auto">
-              <table className="pp-auto-table w-full table-fixed text-left border-collapse font-sans">
+              <table className="premium-table foncier-register-table pp-auto-table w-full table-fixed text-left border-collapse font-sans">
                 <thead>
                   <tr className="border-b border-line bg-surface2/50">
                     {FONCIER_HEADERS.map((h, i) => (
@@ -312,9 +312,9 @@ export const FoncierCalcTable: React.FC<{
                         {/* Labels like "Ville/territoire" have no space to wrap at, so
                             they break after the slash and stack on two lines inside
                             their own column instead of running into the next one. */}
-                        <span className="flex min-h-[26px] items-start text-[11px] font-bold uppercase tracking-[0.04em] leading-[13px] text-faint">
+                        <span className="flex min-h-[48px] items-center text-[11px] font-bold uppercase tracking-[0.04em] leading-[16px] text-faint">
                           <span
-                            className={`w-full min-w-0 break-words ${h.right ? 'text-right' : 'text-left'}`}
+                            className={`w-full min-w-0 whitespace-normal [overflow-wrap:normal] [word-break:normal] hyphens-none ${h.right ? 'text-right' : 'text-left'}`}
                           >
                             {h.label.split('/').map((part, k, all) => (
                               <React.Fragment key={k}>
@@ -594,7 +594,7 @@ export const FoncierCalcPrintTable: React.FC<{
   );
   return (
     <div className="w-full">
-      <table aria-label="Calcul d'impôts" className="pp-auto-table w-full table-fixed text-left border-collapse font-sans">
+      <table aria-label="Calcul d'impôts" className="premium-table pp-auto-table w-full table-fixed text-left border-collapse font-sans">
         <thead>
           <tr className="border-b border-line bg-surface2/50">
             {FONCIER_PRINT_HEADERS.map((h, i) => (

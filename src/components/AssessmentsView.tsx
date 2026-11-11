@@ -601,7 +601,7 @@ export const AssessmentsView: React.FC<AssessmentsViewProps> = ({ userRole, onNa
 
         {/* Assessments Data Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs font-sans">
+          <table className="premium-table w-full text-left border-collapse text-xs font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/40">
                 <th className="py-3.5 px-6 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Notice & Year</th>

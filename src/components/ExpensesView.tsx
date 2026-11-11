@@ -111,6 +111,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ userRole }) => {
   const [schedules, setSchedules] = useState<RecurringExpense[]>([]);
   const [records, setRecords] = useState<ExpenseRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'schedules' | 'ledger'>('schedules');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | ExpenseCategory>('all');
@@ -157,31 +159,26 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ userRole }) => {
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    Promise.all([getRecurringExpenses(), getExpenseRecords()])
-      .then(([sched, recs]) => {
-        if (!mounted) return;
-        setSchedules(sched);
-        setRecords(recs);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
+    setLoadError('');
+    const ready = new Set<string>();
+    const done = (source: string) => { ready.add(source); if (ready.size === 2) setLoading(false); };
+    const fail = () => { if (mounted) { setLoadError('Impossible de charger le registre des dépenses.'); setLoading(false); } };
     const unsubSchedules = subscribeToRecurringExpenses((list) => {
       if (!mounted) return;
       setSchedules(list);
-      setLoading(false);
-    });
+      done('schedules');
+    }, fail);
     const unsubRecords = subscribeToExpenseRecords((list) => {
       if (!mounted) return;
       setRecords(list);
-    });
+      done('records');
+    }, fail);
     return () => {
       mounted = false;
       unsubSchedules();
       unsubRecords();
     };
-  }, []);
+  }, [reloadKey]);
 
   const metrics = useMemo(() => {
     const active = schedules.filter((s) => s.status === 'Active');
@@ -556,6 +553,11 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ userRole }) => {
     ? computeNextDueDate(payTarget.nextDueDate < today ? today : payTarget.nextDueDate, payTarget.frequency)
     : '';
 
+  if (loadError || loading) return <div role="status" className="space-y-4">
+    <p>{loadError || 'Chargement du registre des dépenses…'}</p>
+    {loadError && <Button onClick={() => setReloadKey((k) => k + 1)}>Réessayer</Button>}
+  </div>;
+
   return (
     <div className="space-y-8 font-sans">
       <PageHeader
@@ -711,7 +713,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ userRole }) => {
           padding="none"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[900px]">
+            <table className="premium-table w-full text-left text-xs min-w-[900px]">
               <thead className="bg-surface2/70 border-b border-line">
                 <tr className="text-[11px] uppercase tracking-[0.1em] text-muted">
                   <th className="font-bold px-6 py-3.5">Expense</th>
@@ -805,7 +807,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ userRole }) => {
           padding="none"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[860px]">
+            <table className="premium-table w-full text-left text-xs min-w-[860px]">
               <thead className="bg-surface2/70 border-b border-line">
                 <tr className="text-[11px] uppercase tracking-[0.1em] text-muted">
                   <th className="font-bold px-6 py-3.5">Expense</th>

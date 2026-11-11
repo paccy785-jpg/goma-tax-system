@@ -135,7 +135,7 @@ export const USD_LABELS: FrenchCurrencyLabels = {
 
 /** Round to two decimals, the precision a monetary amount is kept at. */
 export function roundMoney(value: number): number {
-  if (!Number.isFinite(value)) return 0;
+  if (!Number.isFinite(value)) return NaN;
   // Scale FIRST, then round on the integer. The old form was
   // `Math.round((value + Number.EPSILON) * 100) / 100`, and Number.EPSILON is
   // ~2.2e-16 — far too small to lift any value above ~4 after multiplying by
@@ -143,8 +143,8 @@ export function roundMoney(value: number): number {
   // landed a hair under .5 (8.075 * 100 === 807.4999999999999), so roughly
   // 0.35% of 15% duties were a cent short. `toFixed(6)` snaps that float noise
   // back onto the intended half before rounding.
-  const cents = Number((value * 100).toFixed(6));
-  return Math.round(cents) / 100;
+  const cents = Number((Math.abs(value) * 100).toFixed(6));
+  return Math.sign(value) * Math.round(cents) / 100;
 }
 
 /**

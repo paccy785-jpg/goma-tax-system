@@ -12,8 +12,11 @@ import { db } from '../firebase/config';
 import { UserRole } from '../types';
 import { logAuditEvent } from './dbService';
 import { amountInFrenchWords, roundMoney } from '../utils/frenchNumber';
+import { requireMoney } from '../utils/paymentAmounts';
 import { formatMoney } from '../utils/money';
 import { localDateFromIsoTimestamp, todayDateString } from '../utils/date';
+import { normalizeReference, referenceClaimId } from '../utils/bankReference';
+import type { PaymentReceipt } from './bankConfirmationService';
 
 /** The payment modes the bureau comptable may record on a note de perception, in order. */
 export const NOTE_PERCEPTION_PAYMENT_MODES = [
@@ -157,6 +160,21 @@ export interface ComptableSection {
   filledByName: string;
 }
 
+/** The bank's confirmation that a note de perception was paid — final once saved. */
+export interface PaiementConfirmation {
+  /** The payment reference the bank issued. */
+  reference: string;
+  confirmedAt: string;
+  confirmedByUid: string;
+  confirmedByName: string;
+  /**
+   * Receipt number (`RD-<year>-<00001>`), from the same counter as the
+   * declarations' receipts — the note then appears in Historique des paiements.
+   */
+  receiptNumber?: string;
+  receiptSequence?: number;
+}
+
 export interface NotePerception {
   id: string;
   taxateur: TaxateurSection;
@@ -164,6 +182,8 @@ export interface NotePerception {
   ordonnateur?: OrdonnateurSection;
   /** Present once the bureau comptable has recorded the payment. */
   comptable?: ComptableSection;
+  /** Present once the payment has been confirmed, after the comptable's part. */
+  confirmation?: PaiementConfirmation;
   createdAt: string;
   createdByUid: string;
   createdByName: string;
@@ -475,17 +495,21 @@ export async function addPaiementComptable(
  * note's taxed amount carry it under their earlier field name.
  */
 export const montantPaiementUSD = (c: ComptableSection): number =>
-  typeof c.montantUSD === 'number' ? c.montantUSD : Number((c as unknown as Record<string, unknown>)['montantOrdonneUSD']) || 0;
+  typeof c.montantUSD === 'number' ? c.montantUSD :
+    typeof (c as unknown as Record<string, unknown>).montantOrdonneUSD === 'number'
+      ? (c as unknown as Record<string, number>).montantOrdonneUSD : NaN;
 export const montantPaiementEnLettres = (c: ComptableSection): string =>
   c.montantEnLettres || String((c as unknown as Record<string, unknown>)['montantOrdonneEnLettres'] || '') || montantEnLettres(montantPaiementUSD(c));
 
 /** Live list of notes, newest first. */
 export function subscribeToNotesPerception(
   onData: (rows: NotePerception[]) => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  /** How many notes to read — the reports ask for a larger window. */
+  limitCount: number | null = null
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, NOTES_PERCEPTION_COLLECTION), orderBy('createdAt', 'desc'), limit(1000)),
+    query(collection(db, NOTES_PERCEPTION_COLLECTION), orderBy('createdAt', 'desc'), ...(limitCount === null ? [] : [limit(limitCount)])),
     (snap) => onData(snap.docs.map((d) => ({ ...(d.data() as NotePerception), id: d.id }))),
     (err) => {
       console.warn('[NotesPerception] Listener error:', err);
@@ -493,4 +517,120 @@ export function subscribeToNotesPerception(
       onData([]);
     }
   );
+}
+
+/** The bank reference claims, shared with the declarations' confirmations. */
+const BANK_REFERENCE_CLAIMS = 'bankReferenceClaims';
+
+/**
+ * Confirm the payment of a note de perception — only once the comptable has
+ * filled in their part. The reference is claimed in the same transaction, in
+ * the claims the declarations use, so one bank reference pays one thing.
+ */
+export async function confirmerPaiementNote(
+  note: NotePerception,
+  referenceInput: string,
+  actor: { uid: string; displayName: string; role: UserRole },
+  /** References already used, normalised. */
+  usedReferences: Set<string>
+): Promise<PaiementConfirmation> {
+  const reference = referenceInput.trim().replace(/\s+/g, ' ');
+  if (!reference) throw new Error('Saisissez la référence du paiement.');
+  const normalizedReference = normalizeReference(reference);
+  if (usedReferences.has(normalizedReference)) {
+    throw new Error(`La référence « ${reference} » a déjà été utilisée pour un autre paiement.`);
+  }
+  if (!note.comptable) throw new Error("Le comptable n'a pas encore rempli cette note de perception.");
+
+  const ref = doc(db, NOTES_PERCEPTION_COLLECTION, note.id);
+  const claimRef = doc(db, BANK_REFERENCE_CLAIMS, referenceClaimId(normalizedReference));
+  const confirmation: PaiementConfirmation = {
+    reference,
+    confirmedAt: new Date().toISOString(),
+    confirmedByUid: actor.uid,
+    confirmedByName: actor.displayName,
+  };
+  // The receipt number is issued in the same transaction, from the counter the
+  // declarations' receipts use, so no two receipts share a number.
+  const counterRef = doc(db, 'counters', 'declarationReceiptCounter');
+  const year = confirmation.confirmedAt.slice(0, 4);
+  const commit = () =>
+    runTransaction(db, async (tx) => {
+      const fresh = await tx.get(ref);
+      if (!fresh.exists()) throw new Error("Cette note de perception n'existe plus.");
+      const data = fresh.data() as NotePerception;
+      if (!data.comptable) throw new Error("Le comptable n'a pas encore rempli cette note de perception.");
+      if (data.confirmation) throw new Error('Ce paiement a déjà été confirmé.');
+      if (/^NP-DEMO-/i.test(data.taxateur?.numeroFacture || '')) throw new Error('Une note de démonstration ne peut pas être encaissée.');
+      const amount = requireMoney(montantPaiementUSD(data.comptable), 'Paiement');
+      if (amount !== requireMoney(data.taxateur?.montantUSD, 'Montant taxé')) {
+        throw new Error('Le paiement enregistré ne correspond pas au montant taxé.');
+      }
+      const claim = await tx.get(claimRef);
+      if (claim.exists()) {
+        throw new Error(`La référence « ${reference} » a déjà été utilisée pour un autre paiement.`);
+      }
+      const record: PaiementConfirmation = { ...confirmation };
+      {
+        const counter = await tx.get(counterRef);
+        const next = (counter.exists() ? Number(counter.data().currentSequence) || 0 : 0) + 1;
+        record.receiptSequence = next;
+        record.receiptNumber = `RD-${year}-${String(next).padStart(5, '0')}`;
+        tx.set(counterRef, { currentSequence: next, updatedAt: record.confirmedAt }, { merge: true });
+      }
+      tx.set(claimRef, {
+        reference,
+        normalizedReference,
+        kind: 'notePerception',
+        calculationId: note.id,
+        confirmationId: `notePerception_${note.id}`,
+        claimedAt: record.confirmedAt,
+      });
+      tx.update(ref, { confirmation: record });
+      return record;
+    });
+  const saved = await commit();
+
+  await logAuditEvent(
+    actor.uid,
+    actor.displayName,
+    actor.role,
+    'CONFIRM_NOTE_PERCEPTION_PAYMENT',
+    'NotePerception',
+    note.id,
+    `Paiement confirmé — note de perception ${note.taxateur.numeroFacture} : ${formatMoney(
+      montantPaiementUSD(note.comptable)
+    )}, référence ${reference}${saved.receiptNumber ? `, reçu ${saved.receiptNumber}` : ''}.`
+  ).catch(() => {});
+
+  return saved;
+}
+
+/**
+ * A note de perception whose payment is confirmed, as a receipt of Historique
+ * des paiements — the same shape as a declaration's bank confirmation.
+ */
+export function noteReceipt(n: NotePerception): PaymentReceipt | null {
+  if (!n.confirmation || !n.comptable || /^NP-DEMO-/i.test(n.taxateur?.numeroFacture || '')) return null;
+  const c = n.comptable;
+  const name = (n.taxateur?.contribuableName || n.ordonnateur?.contribuableName || '').trim();
+  const nif = (n.taxateur?.contribuableNif || n.ordonnateur?.contribuableNif || '').trim();
+  const day = dateTaxationOf(n);
+  return {
+    id: `notePerception_${n.id}`,
+    kind: 'notePerception',
+    calculationId: n.id,
+    contribuableName: name || 'Non renseigné',
+    ...(nif ? { contribuableNif: nif } : {}),
+    amountUSD: montantPaiementUSD(c),
+    modePaiement: c.modePaiement,
+    reference: n.confirmation.reference,
+    confirmedAt: n.confirmation.confirmedAt,
+    confirmedByUid: n.confirmation.confirmedByUid,
+    confirmedByName: n.confirmation.confirmedByName,
+    ...(n.confirmation.receiptNumber ? { receiptNumber: n.confirmation.receiptNumber } : {}),
+    ...(n.confirmation.receiptSequence ? { receiptSequence: n.confirmation.receiptSequence } : {}),
+    detail: `Note de perception ${n.taxateur.numeroFacture} — quittance n° ${c.quittanceNumero}`,
+    ...(day ? { declaredAt: `${day}T12:00:00` } : {}),
+  };
 }

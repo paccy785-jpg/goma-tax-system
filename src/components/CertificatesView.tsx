@@ -451,7 +451,7 @@ export const CertificatesView: React.FC<CertificatesViewProps> = ({
 
           {/* Table Container */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="premium-table w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-surface2/60 text-faint font-bold uppercase tracking-[0.1em] text-[11px] border-b border-line">
                   <th className="py-3 px-4">License / Cert #</th>

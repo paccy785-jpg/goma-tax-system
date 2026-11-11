@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   setDoc,
+  runTransaction,
   updateDoc,
   query,
   limit,
@@ -21,7 +22,7 @@ import {
 } from '../types';
 import { logAuditEvent } from './dbService';
 import { intentId } from './idempotency';
-import { localDateFromIsoTimestamp } from '../utils/date';
+import { isValidDateString, todayDateString, localDateFromIsoTimestamp } from '../utils/date';
 
 export const RECEPTION_WINDOWS = [
   'Counter 1 — Goma',
@@ -55,6 +56,7 @@ export function minutesBetween(fromIso: string, toIso: string): number {
  * - Cancelled / NoShow -> frozen at the last known transition
  */
 export function waitMinutesFor(entry: ReceptionEntry, nowIso: string = new Date().toISOString()): number {
+  if (entry.status === 'Scheduled') return 0;
   const end =
     entry.status === 'Waiting'
       ? nowIso
@@ -84,6 +86,10 @@ export function sortQueueForDisplay(entries: ReceptionEntry[]): ReceptionEntry[]
     const aActive = a.status === 'Waiting' || a.status === 'InService' ? 0 : 1;
     const bActive = b.status === 'Waiting' || b.status === 'InService' ? 0 : 1;
     if (aActive !== bActive) return aActive - bActive;
+    if (a.status === 'Scheduled' && b.status === 'Scheduled') {
+      const byDate = (a.scheduledFor || '').localeCompare(b.scheduledFor || '');
+      if (byDate !== 0) return byDate;
+    }
     if (a.status === 'Waiting' && b.status === 'Waiting') {
       if (a.priority !== b.priority) return a.priority === 'Priority' ? -1 : 1;
     }
@@ -112,6 +118,11 @@ function normalizeEntry(raw: any): ReceptionEntry {
     service: normalizeReceptionService(raw?.service),
     priority: raw?.priority === 'Priority' ? 'Priority' : 'Normal',
     status: normalizeReceptionStatus(raw?.status),
+    scheduledFor: raw?.scheduledFor || undefined,
+    scheduledTime: raw?.scheduledTime || undefined,
+    scheduledAt: raw?.scheduledAt || undefined,
+    scheduledBy: raw?.scheduledBy || undefined,
+    originalCheckedInAt: raw?.originalCheckedInAt || undefined,
     checkedInAt: String(raw?.checkedInAt || raw?.createdAt || new Date().toISOString()),
     calledAt: raw?.calledAt ? String(raw.calledAt) : null,
     completedAt: raw?.completedAt ? String(raw.completedAt) : null,
@@ -143,9 +154,9 @@ export async function getReceptionQueue(): Promise<ReceptionEntry[]> {
 export function subscribeToReceptionQueue(
   onData: (entries: ReceptionEntry[]) => void,
   onError?: (err: any) => void,
-  limitCount = 300
+  limitCount: number | null = null
 ): Unsubscribe {
-  const q = query(collection(db, COLLECTION), limit(limitCount));
+  const q = query(collection(db, COLLECTION), ...(limitCount === null ? [] : [limit(limitCount)]));
   const unsubscribe = onSnapshot(
     q,
     (snapshot) => {
@@ -241,28 +252,18 @@ export async function callVisitor(entry: ReceptionEntry, input: CallVisitorInput
     throw new Error(`Cannot call visitor "${entry.visitorName}" — ticket is already "${entry.status}".`);
   }
   const now = new Date().toISOString();
-  const waited = waitMinutesFor(entry, now);
-  const updated: ReceptionEntry = {
-    ...entry,
-    status: 'InService',
-    calledAt: now,
-    servedBy: input.actor.uid,
-    servedByName: input.actor.displayName,
-    window: input.window,
-    updatedAt: now,
-  };
-  try {
-    await updateDoc(doc(db, COLLECTION, entry.id), {
-      status: 'InService',
-      calledAt: now,
-      servedBy: input.actor.uid,
-      servedByName: input.actor.displayName,
-      window: input.window,
-      updatedAt: now,
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `${COLLECTION}/${entry.id}`);
-  }
+  const updated = await runTransaction(db, async (tx) => {
+    const ref = doc(db, COLLECTION, entry.id);
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Ce visiteur n’existe plus.');
+    const live = normalizeEntry({ ...snap.data(), id: snap.id });
+    if (live.status !== 'Waiting') throw new Error('Ce visiteur n’est plus en attente.');
+    const changes = { status: 'InService' as const, calledAt: now, servedBy: input.actor.uid,
+      servedByName: input.actor.displayName, window: input.window, updatedAt: now };
+    tx.update(ref, changes);
+    return { ...live, ...changes };
+  });
+  const waited = waitMinutesFor(updated, now);
   await logAuditEvent(
     input.actor.uid,
     input.actor.displayName,
@@ -352,4 +353,68 @@ export function averageWaitForDay(entries: ReceptionEntry[], day: string): numbe
   if (done.length === 0) return 0;
   const total = done.reduce((sum, e) => sum + waitMinutesFor(e), 0);
   return Math.round(total / done.length);
+}
+
+/** Schedule an existing waiting ticket, or check it back in when the visitor returns. */
+export async function scheduleReceptionVisitor(
+  entryId: string,
+  date: string | null,
+  actor: { uid: string; displayName: string; role: UserRole }
+): Promise<ReceptionEntry> {
+  if (!['Admin', 'Supervisor', 'Cashier'].includes(actor.role)) throw new Error('Accès en lecture seule.');
+  if (date !== null && (!isValidDateString(date) || date <= todayDateString())) {
+    throw new Error('Choisissez une date future valide.');
+  }
+  const ref = doc(db, COLLECTION, entryId);
+  const updated = await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) throw new Error('Ce visiteur n’existe plus.');
+    const live = normalizeEntry({ ...snapshot.data(), id: snapshot.id });
+    const now = new Date().toISOString();
+    if (date !== null) {
+      if (live.status !== 'Waiting' && live.status !== 'Scheduled') throw new Error('Ce visiteur ne peut plus être planifié.');
+      const changes = { status: 'Scheduled' as const, scheduledFor: date, scheduledAt: now,
+        scheduledBy: actor.uid, originalCheckedInAt: live.originalCheckedInAt || live.checkedInAt, updatedAt: now };
+      tx.update(ref, changes);
+      return { ...live, ...changes };
+    }
+    if (live.status !== 'Scheduled') throw new Error('Ce visiteur n’est pas planifié.');
+    if (!live.scheduledFor || live.scheduledFor > todayDateString()) throw new Error('La date prévue n’est pas encore arrivée.');
+    const changes = { status: 'Waiting' as const, checkedInAt: now, calledAt: null, completedAt: null,
+      servedBy: '', servedByName: '', window: '', updatedAt: now };
+    tx.update(ref, changes);
+    return { ...live, ...changes };
+  });
+  await logAuditEvent(actor.uid, actor.displayName, actor.role, date ? 'VISITOR_SCHEDULED' : 'VISITOR_RETURNED',
+    'Reception', entryId, `${updated.visitorName} — ${date ? `scheduled for ${date}` : 'checked in on return'}.`);
+  return updated;
+}
+
+/** A form submission owns one permanent ID, so retries cannot create two meetings. */
+export async function createReceptionMeeting(input: {
+  submissionId: string; visitorName: string; date: string; time?: string; service?: string; notes?: string;
+}, actor: RegisterVisitorInput['actor']): Promise<ReceptionEntry> {
+  if (!['Admin', 'Supervisor', 'Cashier'].includes(actor.role)) throw new Error('Accès en lecture seule.');
+  if (!input.visitorName.trim()) throw new Error('Saisissez le nom du visiteur.');
+  if (!isValidDateString(input.date) || input.date <= todayDateString()) throw new Error('Choisissez une date future valide.');
+  if (input.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) throw new Error('Heure invalide.');
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(input.submissionId)) throw new Error('Identifiant du rendez-vous invalide.');
+  const id = `meeting_${input.submissionId}`;
+  const ref = doc(db, COLLECTION, id);
+  const result = await runTransaction(db, async (tx) => {
+    const existing = await tx.get(ref);
+    if (existing.exists()) return normalizeEntry({ ...existing.data(), id });
+    const now = new Date().toISOString();
+    const entry: ReceptionEntry = {
+      id, visitorName: input.visitorName.trim(), service: normalizeReceptionService(input.service),
+      notes: input.notes?.trim() || '', priority: 'Normal', status: 'Scheduled',
+      scheduledFor: input.date, scheduledTime: input.time || '', scheduledAt: now, scheduledBy: actor.uid,
+      checkedInAt: now, createdAt: now, registeredBy: actor.uid, registeredByName: actor.displayName,
+    };
+    tx.set(ref, entry);
+    return entry;
+  });
+  await logAuditEvent(actor.uid, actor.displayName, actor.role, 'MEETING_SCHEDULED', 'Reception', id,
+    `${result.visitorName} — ${result.scheduledFor} ${result.scheduledTime || ''}`);
+  return result;
 }

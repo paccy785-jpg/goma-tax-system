@@ -10,6 +10,8 @@
  * page — never below MIN_PRINT_ZOOM, so the text stays readable.
  */
 import QRCode from 'qrcode';
+import { issueNotePerceptionDocumentCode } from '../../services/notePerceptionDocumentCode';
+import { emitGlobalToast } from '../../contexts/ToastContext';
 import { buildNotePerceptionQrPayload, newNotePerceptionRef } from './notePerceptionQr';
 
 const MIN_PRINT_ZOOM = 0.7;
@@ -20,6 +22,14 @@ export async function printNotePerception(
   note?: { id: string; numero: string } | null
 ): Promise<void> {
   if (!source) return;
+  const sheet = source.cloneNode(true) as HTMLElement;
+  let documentCode = '';
+  try {
+    if (note) documentCode = await issueNotePerceptionDocumentCode(note.id);
+  } catch (error) {
+    emitGlobalToast(error instanceof Error ? error.message : 'Impossible de générer le code de la note.', 'error', 'Impression impossible');
+    return;
+  }
   document.getElementById('np-print-sheet')?.remove();
   document.querySelector('style[data-np-print]')?.remove();
 
@@ -31,9 +41,10 @@ export async function printNotePerception(
   const PAGE_H = mm(255) - 16;
   const LAYOUT_W = 860;
 
-  const sheet = source.cloneNode(true) as HTMLElement;
   sheet.id = 'np-print-sheet';
   sheet.classList.add('pp-compact');
+  const codeLabel = sheet.querySelector<HTMLElement>('[data-np-document-code]');
+  if (codeLabel) codeLabel.textContent = documentCode;
   // Measured off screen at the page width — blank rows at their printed
   // height — to find the scale that fits it on one page.
   sheet.style.cssText = `position:absolute;left:-20000px;top:0;width:${LAYOUT_W}px;`;
@@ -66,7 +77,7 @@ export async function printNotePerception(
   // The QR code at the foot of the page: this printed copy's reference, in the
   // payload the scanning app reads (notePerceptionQr.ts). Drawn at three times
   // its printed size so it stays sharp on paper.
-  const ref = note ? note.numero : newNotePerceptionRef();
+  const ref = documentCode || newNotePerceptionRef();
   const qrImg = sheet.querySelector<HTMLImageElement>('.np-qr');
   const qrRef = sheet.querySelector<HTMLElement>('.np-qr-ref');
   try {
@@ -135,7 +146,7 @@ export async function printNotePerception(
 
   // The PDF is named after the document.
   const prevTitle = document.title;
-  document.title = note ? `Note de perception ${note.numero}` : 'Note de perception';
+  document.title = note ? `Note de perception ${documentCode}` : 'Note de perception';
 
   const done = () => {
     document.title = prevTitle;

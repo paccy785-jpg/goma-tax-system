@@ -116,3 +116,22 @@ describe('formatMoney — rounding', () => {
     assert.equal(formatMoney(NaN), '—');
   });
 });
+
+describe('malformed mixed grouping', () => {
+  test('rejects a misplaced separator rather than silently changing the amount', () => {
+    for (const raw of ['1,2.50', '1.2,50', '1,,250.50', '12,34.56']) assert.ok(Number.isNaN(parseAmount(raw)), raw);
+    assert.equal(parseAmount('1,234.56'), 1234.56);
+    assert.equal(parseAmount('1.234,56'), 1234.56);
+  });
+});
+
+describe('invalid amounts and credits', () => {
+  test('rounding cannot turn an invalid amount into a valid zero', () => {
+    assert.ok(Number.isNaN(roundMoney(NaN)));
+    assert.ok(Number.isNaN(roundMoney(Infinity)));
+  });
+  test('half-cent credits round symmetrically with charges', () => {
+    assert.equal(roundMoney(-8.075), -8.08);
+    assert.equal(formatMoney(-8.075), '-8,08$');
+  });
+});

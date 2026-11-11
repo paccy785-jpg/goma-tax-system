@@ -1,5 +1,5 @@
-import { Payment, Assessment, Business, BusinessSector, SECTOR_LABELS, BusinessSizeClass, normalizeBusinessStatus } from '../types';
-import { localDateFromIsoTimestamp, todayDateString, daysBetweenDates } from '../utils/date';
+import { Payment, Assessment, Business, BusinessSector, SECTOR_LABELS, BusinessSizeClass, normalizeBusinessStatus, normalizeAssessmentStatus, normalizeSector, normalizeSizeClass } from '../types';
+import { localDateFromIsoTimestamp, todayDateString, daysBetweenDates, isValidDateString } from '../utils/date';
 import { csvCell } from '../utils/csv';
 
 export interface DailyRevenueItem {
@@ -48,7 +48,7 @@ export interface SectorRevenueItem {
   totalCollectedUSD: number;
   businessCount: number;
   paymentCount: number;
-  recoveryRatePercent: number;
+  recoveryRatePercent: number | null;
   percentageOfTotalRevenue: number;
 }
 
@@ -59,7 +59,7 @@ export interface ComplianceSummary {
   delinquentBusinesses: number;
   deregisteredBusinesses: number;
   inactiveBusinesses: number;
-  complianceRatePercent: number;
+  complianceRatePercent: number | null;
   totalOverdueUSD: number;
   byCommune: {
     commune: string;
@@ -67,7 +67,7 @@ export interface ComplianceSummary {
     active: number;
     delinquent: number;
     deregistered: number;
-    complianceRate: number;
+    complianceRate: number | null;
   }[];
   bySizeClass: {
     sizeClass: BusinessSizeClass;
@@ -75,7 +75,7 @@ export interface ComplianceSummary {
     total: number;
     active: number;
     delinquent: number;
-    complianceRate: number;
+    complianceRate: number | null;
   }[];
   delinquentDetails: {
     businessId: string;
@@ -106,6 +106,33 @@ export interface CashierDailyShiftItem {
 }
 
 /**
+ * Heads of tax collected through the Comptable tab (see reportLedger.ts), by
+ * the code their payments and notices carry.
+ */
+export const REPORT_TAX_LABELS: Record<string, string> = {
+  IF: 'Impôt foncier (IF)',
+  IRL: 'Impôt sur les revenus locatifs (IRL)',
+  NP: 'Note de perception',
+};
+
+/**
+ * The urban commune a record belongs to. Read without regard to case or
+ * spacing, so "karisimbi" or "KARISIMBI " is not booked to Goma.
+ */
+export function communeOf(commune?: string): string {
+  const name = (commune || '').trim();
+  if (!name) return 'Unattributed';
+  if (name.toLowerCase() === 'karisimbi') return 'Karisimbi';
+  if (name.toLowerCase() === 'goma') return 'Goma';
+  return name;
+}
+
+/** Drafts and cancelled notices are not collectible tax debt. */
+export function isIssuedAssessment(a: Assessment): boolean {
+  return !['Cancelled', 'Draft', 'Pending_Approval'].includes(normalizeAssessmentStatus(a.status));
+}
+
+/**
  * Voided receipts are officially cancelled and must never be counted as
  * revenue. Every aggregation below funnels its payments input through this.
  */
@@ -123,9 +150,12 @@ function excludeVoidedPayments(payments: Payment[]): Payment[] {
  * with no date, so they are kept out of the dated buckets and reported
  * separately as undated rather than being invented a date.
  */
-function paymentDayOf(p: Payment): string | null {
-  if (p.paymentDate) return p.paymentDate;
-  if (p.paidAt) return localDateFromIsoTimestamp(p.paidAt);
+export function paymentDayOf(p: Payment): string | null {
+  if (p.paymentDate && isValidDateString(p.paymentDate)) return p.paymentDate;
+  if (p.paidAt) {
+    const day = localDateFromIsoTimestamp(p.paidAt);
+    if (isValidDateString(day)) return day;
+  }
   return null;
 }
 
@@ -160,7 +190,7 @@ export function computePeriodRevenue(payments: Payment[]) {
     existing.count += 1;
     existing.totalUSD += pUSD;
 
-    if (!p.paymentMethod || p.paymentMethod === 'Cash_Guichet') {
+    if (p.paymentMethod === 'Cash_Guichet') {
       existing.cashUSD += pUSD;
     } else {
       existing.otherUSD += pUSD;
@@ -228,12 +258,13 @@ export function computePeriodRevenue(payments: Payment[]) {
   // 3. Yearly — bucket on the PAYMENT date like daily/monthly (which use
   // `paymentDayOf`). Keying on fiscalYear put a 2026 payment against a FY-2025
   // assessment into the 2025 yearly bucket while the monthly chart showed 2026
-  // — the two charts contradicted each other. A payment with no date at all
-  // falls back to its fiscal year, which is the only dated fact it carries.
+  // — the two charts contradicted each other. Undated receipts remain
+  // in the undated bucket rather than inheriting the tax year.
   const yearlyMap = new Map<number, { count: number; totalUSD: number }>();
   for (const p of live) {
     const paymentDay = paymentDayOf(p);
-    const yr = paymentDay ? parseInt(paymentDay.split('-')[0], 10) : (p.fiscalYear || new Date().getFullYear());
+    if (!paymentDay) continue;
+    const yr = Number(paymentDay.slice(0, 4));
     if (!Number.isFinite(yr)) continue;
     const existing = yearlyMap.get(yr) || { count: 0, totalUSD: 0 };
     const pUSD = p.amountPaidUSD || 0;
@@ -273,17 +304,18 @@ export function computeCommuneRevenue(
   const bizInfoMap = new Map<string, { commune: string; quartier: string }>();
   for (const b of businesses) {
     bizInfoMap.set(b.id, {
-      commune: b.commune || 'Goma',
-      quartier: b.quartier || 'Centre',
+      commune: communeOf(b.commune),
+      quartier: b.quartier || 'Unattributed',
     });
   }
 
   // Also build from assessments if businessId matches
   for (const a of assessments) {
-    if (a.businessId && !bizInfoMap.has(a.businessId)) {
-      bizInfoMap.set(a.businessId, {
-        commune: a.commune || 'Goma',
-        quartier: a.quartier || 'Centre',
+    const id = a.businessId || a.taxpayerId;
+    if (id && !bizInfoMap.has(id)) {
+      bizInfoMap.set(id, {
+        commune: communeOf(a.commune),
+        quartier: a.quartier || 'Unattributed',
       });
     }
   }
@@ -298,7 +330,7 @@ export function computeCommuneRevenue(
   }>();
 
   // Initialize both official communes of Goma City
-  for (const c of ['Goma', 'Karisimbi']) {
+  for (const c of new Set(['Goma', 'Karisimbi', ...businesses.map((b) => communeOf(b.commune))])) {
     communeMap.set(c, {
       totalUSD: 0,
       txCount: 0,
@@ -309,11 +341,11 @@ export function computeCommuneRevenue(
 
   // Count businesses in each commune
   for (const b of businesses) {
-    const cName = b.commune === 'Karisimbi' ? 'Karisimbi' : 'Goma';
+    const cName = communeOf(b.commune);
     const cData = communeMap.get(cName)!;
     cData.bizIds.add(b.id);
 
-    const qName = b.quartier || 'Centre';
+    const qName = b.quartier || 'Unattributed';
     if (!cData.quartiers.has(qName)) {
       cData.quartiers.set(qName, { totalUSD: 0, bizIds: new Set() });
     }
@@ -327,8 +359,8 @@ export function computeCommuneRevenue(
     // Payments whose business/taxpayer cannot be resolved used to be booked to
     // Goma by default, inflating Goma's share and deflating Karisimbi's. Bucket
     // them honestly under "Unattributed" instead.
-    const cName = info ? (info.commune === 'Karisimbi' ? 'Karisimbi' : 'Goma') : 'Unattributed';
-    const qName = info?.quartier || 'Centre';
+    const cName = info ? communeOf(info.commune) : 'Unattributed';
+    const qName = info?.quartier || 'Unattributed';
 
     let cData = communeMap.get(cName);
     if (!cData) {
@@ -385,7 +417,7 @@ export function computeSectorRevenue(
   const live = excludeVoidedPayments(payments);
   const bizSectorMap = new Map<string, BusinessSector>();
   for (const b of businesses) {
-    bizSectorMap.set(b.id, b.activitySector);
+    bizSectorMap.set(b.id, b.activitySector ? normalizeSector(b.activitySector) : 'Other');
   }
 
   for (const a of assessments) {
@@ -418,7 +450,8 @@ export function computeSectorRevenue(
 
   // Count businesses per sector
   for (const b of businesses) {
-    const s = b.activitySector || 'Other';
+    const normalized = b.activitySector ? normalizeSector(b.activitySector) : 'Other';
+    const s = sectorMap.has(normalized) ? normalized : 'Other';
     if (sectorMap.has(s)) {
       sectorMap.get(s)!.businessIds.add(b.id);
     }
@@ -426,8 +459,10 @@ export function computeSectorRevenue(
 
   // Assessments billed per sector
   for (const a of assessments) {
-    if (a.status === 'Cancelled' || (a.status as string)?.toLowerCase().startsWith('annul')) continue;
-    const s = a.activitySector || (a.businessId ? bizSectorMap.get(a.businessId) : 'Other') || 'Other';
+    if (!isIssuedAssessment(a)) continue;
+    const rawSector = a.activitySector || bizSectorMap.get(a.businessId || a.taxpayerId || '');
+    const normalized = rawSector ? normalizeSector(rawSector) : 'Other';
+    const s = sectorMap.has(normalized) ? normalized : 'Other';
     if (sectorMap.has(s)) {
       sectorMap.get(s)!.totalAssessedUSD += (a.amountDueUSD || 0);
       if (a.businessId) sectorMap.get(s)!.businessIds.add(a.businessId);
@@ -448,8 +483,8 @@ export function computeSectorRevenue(
 
   const result: SectorRevenueItem[] = Array.from(sectorMap.entries()).map(([sector, data]) => {
     const recoveryRate = data.totalAssessedUSD > 0
-      ? Math.min(100, (data.totalCollectedUSD / data.totalAssessedUSD) * 100)
-      : data.totalCollectedUSD > 0 ? 100 : 0;
+      ? (data.totalCollectedUSD / data.totalAssessedUSD) * 100
+      : null;
 
     return {
       sector,
@@ -475,7 +510,7 @@ export interface TaxTypeRevenueItem {
   totalCollectedUSD: number;
   noticeCount: number;
   paymentCount: number;
-  recoveryRatePercent: number;
+  recoveryRatePercent: number | null;
   percentageOfTotalRevenue: number;
 }
 
@@ -498,7 +533,9 @@ export function computeTaxTypeRevenue(
   const taxCodeOf = (code?: string) => (code && code.trim()) || 'PATENTE';
 
   const labelFor = (code: string, ratePercent?: number) =>
-    code === 'PATENTE'
+    REPORT_TAX_LABELS[code]
+      ? REPORT_TAX_LABELS[code]
+      : code === 'PATENTE'
       ? 'Patente (Business License Tax)'
       : ratePercent
         ? `${code} — ${ratePercent}% declaration`
@@ -541,7 +578,7 @@ export function computeTaxTypeRevenue(
   };
 
   for (const a of assessments) {
-    if (a.status === 'Cancelled' || (a.status as string)?.toLowerCase().startsWith('annul')) continue;
+    if (!isIssuedAssessment(a)) continue;
     const bucket = ensure(taxCodeOf(a.taxTypeCode), a.taxRatePercent);
     bucket.totalAssessedUSD += a.amountDueUSD || 0;
     bucket.noticeCount += 1;
@@ -573,7 +610,7 @@ export function computeTaxTypeRevenue(
       recoveryRatePercent:
         b.totalAssessedUSD > 0
           ? Math.round((b.totalCollectedUSD / b.totalAssessedUSD) * 1000) / 10
-          : 0,
+          : null,
       percentageOfTotalRevenue:
         totalRevenueUSD > 0
           ? Math.round((b.totalCollectedUSD / totalRevenueUSD) * 1000) / 10
@@ -634,8 +671,8 @@ export function computeComplianceSummary(
 ): ComplianceSummary {
   const totalBusinesses = businesses.length;
   const deregistered = businesses.filter((b) => normalizeBusinessStatus(b.status) === 'Closure Pending').length;
-  const inactive = businesses.filter((b) => b.status === 'Inactive' || (b.status as any) === 'inactif').length;
-  const active = businesses.filter((b) => b.status === 'Active' || (b.status as any) === 'actif');
+  const inactive = businesses.filter((b) => normalizeBusinessStatus(b.status) === 'Inactive').length;
+  const active = businesses.filter((b) => normalizeBusinessStatus(b.status) === 'Active');
 
   const today = todayDateString();
 
@@ -643,7 +680,7 @@ export function computeComplianceSummary(
   const overdueMap = new Map<string, { count: number; overdueUSD: number; oldestDue: string; maxDays: number }>();
 
   for (const a of assessments) {
-    if (a.status === 'Cancelled' || (a.status as string)?.toLowerCase().startsWith('annul') || a.status === 'Paid' || (a.status as string)?.toLowerCase().startsWith('pay')) continue;
+    if (!isIssuedAssessment(a) || normalizeAssessmentStatus(a.status) === 'Paid') continue;
     const bId = a.businessId || a.taxpayerId;
     if (!bId) continue;
 
@@ -693,23 +730,24 @@ export function computeComplianceSummary(
 
   const delinquentBizIds = new Set(overdueMap.keys());
   const delinquentCount = delinquentBizIds.size;
-  const upToDateCount = Math.max(0, active.length - businesses.filter((b) => (b.status === 'Active' || (b.status as any) === 'actif') && delinquentBizIds.has(b.id)).length);
+  const upToDateCount = Math.max(0, active.length - businesses.filter((b) => (normalizeBusinessStatus(b.status) === 'Active') && delinquentBizIds.has(b.id)).length);
 
   let totalDebtUSD = 0;
   for (const v of overdueMap.values()) {
     totalDebtUSD += v.overdueUSD;
   }
 
-  const complianceRate = active.length > 0 ? (upToDateCount / active.length) * 100 : 100;
+  const complianceRate = active.length > 0 ? (upToDateCount / active.length) * 100 : null;
 
   // By commune
-  const communes = ['Goma', 'Karisimbi'];
+  const communes = [...new Set(['Goma', 'Karisimbi', ...businesses.map((b) => communeOf(b.commune))])];
   const byCommune = communes.map((commune) => {
-    const commBiz = businesses.filter((b) => (b.commune || 'Goma') === commune);
-    const commActive = commBiz.filter((b) => b.status === 'Active' || (b.status as any) === 'actif').length;
+    const commBiz = businesses.filter((b) => communeOf(b.commune) === commune);
+    const commActive = commBiz.filter((b) => normalizeBusinessStatus(b.status) === 'Active').length;
     const commDelinquent = commBiz.filter((b) => delinquentBizIds.has(b.id)).length;
     const commDereg = commBiz.filter((b) => normalizeBusinessStatus(b.status) === 'Closure Pending').length;
-    const commRate = commActive > 0 ? Math.max(0, (commActive - commDelinquent) / commActive) * 100 : 100;
+    const activeDelinquent = commBiz.filter((b) => normalizeBusinessStatus(b.status) === 'Active' && delinquentBizIds.has(b.id)).length;
+    const commRate = commActive > 0 ? ((commActive - activeDelinquent) / commActive) * 100 : null;
 
     return {
       commune,
@@ -730,10 +768,11 @@ export function computeComplianceSummary(
   };
 
   const bySizeClass = sizes.map((sizeClass) => {
-    const sizeBiz = businesses.filter((b) => b.sizeClass === sizeClass || (sizeClass === 'Small' && (b.sizeClass as any) === 'petite') || (sizeClass === 'Medium' && (b.sizeClass as any) === 'moyenne') || (sizeClass === 'Large' && (b.sizeClass as any) === 'grande'));
-    const sizeActive = sizeBiz.filter((b) => b.status === 'Active' || (b.status as any) === 'actif').length;
+    const sizeBiz = businesses.filter((b) => b.sizeClass && normalizeSizeClass(b.sizeClass) === sizeClass);
+    const sizeActive = sizeBiz.filter((b) => normalizeBusinessStatus(b.status) === 'Active').length;
     const sizeDelinquent = sizeBiz.filter((b) => delinquentBizIds.has(b.id)).length;
-    const sizeRate = sizeActive > 0 ? Math.max(0, (sizeActive - sizeDelinquent) / sizeActive) * 100 : 100;
+    const activeDelinquent = sizeBiz.filter((b) => normalizeBusinessStatus(b.status) === 'Active' && delinquentBizIds.has(b.id)).length;
+    const sizeRate = sizeActive > 0 ? ((sizeActive - activeDelinquent) / sizeActive) * 100 : null;
 
     return {
       sizeClass,
@@ -753,8 +792,8 @@ export function computeComplianceSummary(
       businessId: bId,
       businessName: b?.businessName || bId,
       ownerFullName: b?.ownerFullName || 'Not specified',
-      commune: b?.commune || 'Goma',
-      quartier: b?.quartier || 'Centre',
+      commune: communeOf(b?.commune),
+      quartier: b?.quartier || 'Unattributed',
       maxDaysOverdue: o.maxDays ?? 0,
       totalDebtUSD: o.overdueUSD,
       status: b?.status ? (normalizeBusinessStatus(b.status) === 'Closure Pending' ? 'Closure Pending' : b.status) : 'Active',
@@ -797,8 +836,8 @@ export function computeCashierReconciliation(payments: Payment[]): CashierDailyS
     // `computePeriodRevenue().undated`.
     const dateStr = paymentDayOf(p);
     if (!dateStr) continue;
-    const cId = p.cashierId || p.receivedBy || 'cashier_001';
-    const cName = p.cashierName || p.receivedByName || 'Jean-Pierre Muhindo (Main Counter)';
+    const cId = p.cashierId || p.receivedBy || 'unattributed';
+    const cName = p.cashierName || p.receivedByName || 'Unattributed';
     const key = `${cId}_${dateStr}`;
 
     const existing = shiftMap.get(key) || {
@@ -816,7 +855,7 @@ export function computeCashierReconciliation(payments: Payment[]): CashierDailyS
     existing.payments.push(p);
     existing.totalUSD += pUSD;
 
-    if (!p.paymentMethod || p.paymentMethod === 'Cash_Guichet') {
+    if (p.paymentMethod === 'Cash_Guichet') {
       existing.cashUSD += pUSD;
     } else {
       existing.otherUSD += pUSD;
@@ -917,7 +956,7 @@ export function exportPeriodRevenueCSV(
     downloadCsvFile([headers.join(';'), ...rows].join('\r\n'), `monthly_revenue_report_goma_${dateStr}.csv`);
   } else {
     const headers = [
-      'Fiscal_Year',
+      'Collection_Year',
       'Receipt_Count',
       'Total_Revenue_USD($)',
       'Share_Percentage'
@@ -991,7 +1030,7 @@ export function exportSectorRevenueCSV(sectors: SectorRevenueItem[]) {
     s.paymentCount,
     s.totalAssessedUSD.toFixed(2),
     s.totalCollectedUSD.toFixed(2),
-    `${s.recoveryRatePercent.toFixed(2)}%`,
+    s.recoveryRatePercent === null ? '' : `${s.recoveryRatePercent.toFixed(2)}%`,
     `${s.percentageOfTotalRevenue.toFixed(2)}%`
   ]));
 

@@ -24,7 +24,9 @@ import {
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { todayDateString } from '../utils/date';
-import { currentCycleLabel, defaultAdvanceDueDate, nextPayday } from '../utils/payroll';
+import { currentCycleLabel, defaultAdvanceDueDate, nextPayday, rollPayrollCycle } from '../utils/payroll';
+import { ACTIVE_PORTAL } from '../firebase/config';
+import { roundMoney } from '../utils/frenchNumber';
 import { parseAmount } from '../utils/taxCalc';
 import { useToast } from '../contexts/ToastContext';
 import { PageHeader, Button, Badge, Panel, MetricStrip } from './ui';
@@ -59,13 +61,14 @@ interface PayrollState {
   employees: PayrollEmployee[];
   advances: SalaryAdvance[];
   cycle: string;
+  history?: { cycle: string; employees: PayrollEmployee[] }[];
 }
 
 interface PayrollViewProps {
   userRole: UserRole;
 }
 
-const STORAGE_KEY = 'goma_payroll_workspace_v1';
+const STORAGE_KEY = ACTIVE_PORTAL === 'dprnk' ? 'goma_payroll_workspace_v1' : 'goma_payroll_workspace_dgi_v1';
 
 const seedPayrollState = (): PayrollState => ({
   cycle: currentCycleLabel(),
@@ -86,7 +89,7 @@ const loadPayrollState = (): PayrollState => {
       // seeded from a literal, so a workspace restored from an earlier month
       // would keep announcing a cycle that had already gone by.
       if (Array.isArray(parsed?.employees)) {
-        return { ...parsed, cycle: currentCycleLabel() };
+        return rollPayrollCycle(parsed);
       }
     }
   } catch {
@@ -169,7 +172,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
     } catch {
-      // Persistence is a convenience; the active session remains usable without it.
+      showToast('Les données de paie ne peuvent pas être sauvegardées sur cet appareil. Exportez-les avant de fermer.', 'error', 'Sauvegarde impossible');
     }
   }, [workspace]);
 
@@ -212,7 +215,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
 
   const confirmDisbursement = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!disbursementTarget || !paymentReference.trim()) {
+    if (!canDisburse || !disbursementTarget || !paymentReference.trim()) {
       showToast('Add a payment reference before confirming this run.', 'warning', 'Reference required');
       return;
     }
@@ -276,7 +279,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
       account: '—',
       // Rounded to cents here, so the ledger never carries float noise into the
       // payroll total.
-      grossUSD: Math.round(salary * 100) / 100,
+      grossUSD: roundMoney(salary),
       status: 'ready',
     };
 
@@ -358,8 +361,8 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
 
   const exportLedger = () => {
     const rows = [
-      ['Employee', 'Department', 'Gross USD', 'Status', 'Paid at', 'Reference'],
-      ...workspace.employees.map((employee) => [employee.name, employee.department, String(employee.grossUSD), employee.status, employee.paidAt || '', employee.reference || '']),
+      ['Cycle', 'Employee', 'Department', 'Gross USD', 'Status', 'Paid at', 'Reference'],
+      ...[...(workspace.history || []), workspace].flatMap((cycle) => cycle.employees.map((employee) => [cycle.cycle, employee.name, employee.department, String(employee.grossUSD), employee.status, employee.paidAt || '', employee.reference || ''])),
     ];
     const csv = buildCsv(rows);
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -379,7 +382,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
       <PageHeader
         eyebrow="PEOPLE OPERATIONS • PAYROLL CYCLE"
         title="Payroll Command Center"
-        description="Disburse salaries with confidence and keep every salary advance visible, accountable, and on schedule."
+        description="Registre de paie local à ce navigateur. Les paiements sont déclarés manuellement, sans virement bancaire ni synchronisation avec le serveur."
         actions={
           <>
             <Button variant="ghost" size="md" icon={<Download className="w-4 h-4" />} onClick={exportLedger}>
@@ -517,7 +520,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
           padding="none"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[820px]">
+            <table className="premium-table w-full text-left text-xs min-w-[820px]">
               <thead className="bg-surface2/70 border-b border-line">
                 <tr className="text-[11px] uppercase tracking-[0.1em] text-muted">
                   <th className="font-bold px-6 py-3.5">Employee</th>
@@ -667,7 +670,7 @@ export const PayrollView: React.FC<PayrollViewProps> = ({ userRole }) => {
           padding="none"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[820px]">
+            <table className="premium-table w-full text-left text-xs min-w-[820px]">
               <thead className="bg-surface2/70 border-b border-line">
                 <tr className="text-[11px] uppercase tracking-[0.1em] text-muted">
                   <th className="font-bold px-6 py-3.5">Employee</th>

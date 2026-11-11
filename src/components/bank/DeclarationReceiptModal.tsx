@@ -10,15 +10,22 @@ import {
   subscribeToPrintJob,
   subscribeToPrintStations,
 } from '../../services/printService';
-import { BankConfirmation, receiptNumberOf } from '../../services/bankConfirmationService';
+import { PaymentReceipt, receiptNumberOf } from '../../services/bankConfirmationService';
 import { amountInFrenchWords } from '../../utils/frenchNumber';
 import { formatMoney } from '../../utils/money';
 import { Button } from '../ui';
+import { DepartementFinancesSeal } from '../DepartementFinancesSeal';
+import { printOnePage } from '../../utils/printOnePage';
 
-const KIND_FULL: Record<BankConfirmation['kind'], string> = {
+const KIND_FULL: Record<PaymentReceipt['kind'], string> = {
   foncier: 'Impôt foncier (IF)',
   locatif: 'Impôt sur les revenus locatifs (IRL)',
+  notePerception: 'Note de perception',
 };
+
+/** A note de perception's receipt names its object and its taxation date. */
+const objetLabel = (c: PaymentReceipt) => (c.kind === 'notePerception' ? 'Objet' : 'Objet de la déclaration');
+const dateLabel = (c: PaymentReceipt) => (c.kind === 'notePerception' ? 'Taxée le' : 'Déclaré le');
 
 const frDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 const frDateTime = (iso?: string) =>
@@ -34,11 +41,13 @@ const capFirst = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
  * The receipt as the T6 prints it: the same content as the receipt on screen,
  * line by line, laid out by the T6 for its paper width.
  */
-export function declarationReceiptLines(c: BankConfirmation): ReceiptLine[] {
+export function declarationReceiptLines(c: PaymentReceipt): ReceiptLine[] {
   const number = receiptNumberOf(c);
   return [
     { k: 'text', text: 'RÉPUBLIQUE DÉMOCRATIQUE DU CONGO', align: 'center', bold: true },
     { k: 'text', text: 'Département des Finances', align: 'center', bold: true },
+    // The DF seal, right under "Département des Finances", as on the receipt on screen.
+    { k: 'seal' },
     { k: 'text', text: 'Coordination Provinciale des Finances du Nord-Kivu (CPF-NK)', align: 'center' },
     { k: 'text', text: 'Direction Provinciale des Recettes du Nord-Kivu (DPR-NK)', align: 'center' },
     { k: 'rule' },
@@ -50,8 +59,8 @@ export function declarationReceiptLines(c: BankConfirmation): ReceiptLine[] {
     { k: 'pair', label: 'Contribuable', value: c.contribuableName || '—', bold: true },
     { k: 'pair', label: 'NIF', value: c.contribuableNif || 'Non renseigné' },
     { k: 'pair', label: 'Impôt', value: KIND_FULL[c.kind] || c.kind },
-    { k: 'pair', label: 'Objet de la déclaration', value: c.detail || '—' },
-    { k: 'pair', label: 'Déclaré le', value: frDate(c.declaredAt) },
+    { k: 'pair', label: objetLabel(c), value: c.detail || '—' },
+    { k: 'pair', label: dateLabel(c), value: frDate(c.declaredAt) },
     { k: 'pair', label: 'Mode de paiement', value: c.modePaiement || 'Non renseigné' },
     { k: 'pair', label: 'Référence bancaire', value: c.reference || '—' },
     { k: 'pair', label: 'Confirmé le', value: frDateTime(c.confirmedAt) },
@@ -65,11 +74,6 @@ export function declarationReceiptLines(c: BankConfirmation): ReceiptLine[] {
       k: 'text',
       text: 'Ce reçu atteste que le paiement ci-dessus a été confirmé par la banque. Une confirmation enregistrée ne peut être ni modifiée ni annulée.',
     },
-    { k: 'space' },
-    { k: 'space' },
-    { k: 'space' },
-    { k: 'text', text: '______________________', align: 'center' },
-    { k: 'text', text: 'Cachet et signature', align: 'center' },
   ];
 }
 
@@ -105,7 +109,7 @@ const JOB_STATUS: Record<PrintJob['status'], string> = {
  * cancelled, so neither can its receipt.
  */
 export const DeclarationReceiptModal: React.FC<{
-  confirmation: BankConfirmation | null;
+  confirmation: PaymentReceipt | null;
   onClose: () => void;
 }> = ({ confirmation, onClose }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -183,42 +187,11 @@ export const DeclarationReceiptModal: React.FC<{
   };
   const busy = sending || job?.status === 'pending' || job?.status === 'printing';
 
-  /** Print the receipt on this computer — a copy laid out on its own page, nothing else. */
-  const print = () => {
-    if (!sheetRef.current) return;
-    document.getElementById('rd-sheet')?.remove();
-    const sheet = sheetRef.current.cloneNode(true) as HTMLElement;
-    sheet.id = 'rd-sheet';
-    document.body.appendChild(sheet);
-    const page = document.createElement('style');
-    page.setAttribute('data-receipt-print', '');
-    page.textContent = `@page { size: portrait; margin: 14mm; }
-      #rd-sheet { display: none; }
-      @media print {
-        html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-        body.print-receipt > *:not(#rd-sheet) { display: none !important; }
-        body.print-receipt #rd-sheet {
-          display: block !important;
-          max-width: 720px !important;
-          margin: 0 auto !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-      }`;
-    document.head.appendChild(page);
-    document.body.classList.add('print-receipt');
-    const prevTitle = document.title;
-    document.title = number;
-    const done = () => {
-      document.title = prevTitle;
-      document.body.classList.remove('print-receipt');
-      sheet.remove();
-      page.remove();
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
-  };
+  /**
+   * Print the receipt on this computer — a copy on its own portrait page,
+   * nothing else, scaled to fit one page like the note de perception.
+   */
+  const print = () => printOnePage(sheetRef.current, { layoutWidth: 720, title: number });
 
   const row = (label: string, value: React.ReactNode, mono = false) => (
     <tr className="border-b border-slate-200 last:border-0">
@@ -268,12 +241,15 @@ export const DeclarationReceiptModal: React.FC<{
           {/* ---- The printable receipt ---- */}
           <div ref={sheetRef} className="bg-white text-slate-900 rounded-[12px] border border-slate-200 p-6 sm:p-8 font-sans">
             <div className="flex items-start justify-between gap-6">
-              <div className="min-w-0">
+              {/* The masthead, as on the declarations and the note de perception:
+                  one centred column, each line centred right under the one above. */}
+              <div className="w-max max-w-full flex flex-col items-center text-center">
                 <div className="text-[13px] font-bold uppercase tracking-[0.08em] leading-snug">
                   République Démocratique du Congo
                 </div>
-                <div className="text-[12px] font-semibold mt-1.5">Département des Finances</div>
-                <div className="text-[12px] font-semibold mt-1">
+                <div className="text-[12px] font-semibold uppercase mt-1.5">Département des Finances</div>
+                <DepartementFinancesSeal className="w-[100px] h-[100px] mt-1.5 text-slate-900" />
+                <div className="text-[12px] font-semibold uppercase mt-1.5">
                   Coordination Provinciale des Finances du Nord-Kivu (CPF-NK)
                 </div>
                 <div className="text-[12px] font-semibold mt-1">Direction Provinciale des Recettes du Nord-Kivu (DPR-NK)</div>
@@ -295,8 +271,8 @@ export const DeclarationReceiptModal: React.FC<{
                 {row('Contribuable', c.contribuableName || '—')}
                 {row('NIF', c.contribuableNif || 'Non renseigné', true)}
                 {row('Impôt', KIND_FULL[c.kind] || c.kind)}
-                {row('Objet de la déclaration', c.detail || '—')}
-                {row('Déclaré le', frDate(c.declaredAt), true)}
+                {row(objetLabel(c), c.detail || '—')}
+                {row(dateLabel(c), frDate(c.declaredAt), true)}
                 {row('Mode de paiement', c.modePaiement || 'Non renseigné')}
                 {row('Référence bancaire', c.reference, true)}
                 {row('Confirmé le', frDateTime(c.confirmedAt), true)}
@@ -315,16 +291,10 @@ export const DeclarationReceiptModal: React.FC<{
               </div>
             </div>
 
-            <div className="mt-8 flex items-end justify-between gap-6">
-              <p className="text-[11px] text-slate-500 leading-relaxed max-w-[60%]">
-                Ce reçu atteste que le paiement ci-dessus a été confirmé par la banque. Une confirmation
-                enregistrée ne peut être ni modifiée ni annulée.
-              </p>
-              <div className="text-center shrink-0">
-                <div className="w-44 h-14 border-b border-slate-400" />
-                <div className="text-[11px] font-semibold text-slate-600 mt-1">Cachet et signature</div>
-              </div>
-            </div>
+            <p className="mt-8 text-[11px] text-slate-500 leading-relaxed">
+              Ce reçu atteste que le paiement ci-dessus a été confirmé par la banque. Une confirmation
+              enregistrée ne peut être ni modifiée ni annulée.
+            </p>
           </div>
         </div>
 

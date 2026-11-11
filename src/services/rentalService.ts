@@ -84,6 +84,7 @@ export interface RentalRollRow {
 export interface RentalRoll {
   rows: RentalRollRow[];
   totalLeases: number;
+  /** Distinct tenant names across the roll, matching the table's name-based grouping. */
   totalTenants: number;
   /** Total revenu brut across every lease in scope, in USD. */
   totalGrossUSD: number;
@@ -106,7 +107,9 @@ export function computeRentalRoll(
   }));
 
   const totalGrossUSD = rows.reduce((sum, r) => sum + r.grossUSD, 0);
-  const totalTenants = leases.reduce((sum, l) => sum + tenantCount(l), 0);
+  const totalTenants = new Set(leases.flatMap((lease) =>
+    (lease.tenantNames || []).map((name) => name.trim().toLowerCase()).filter(Boolean)
+  )).size;
 
 
   return {
@@ -216,7 +219,7 @@ export function exportRentalRegisterCSV(roll: RentalRoll, exercice: number) {
       'TOTAL',
       '',
       '',
-      `${roll.totalLeases} bailleur${roll.totalLeases === 1 ? '' : 's'} · ${roll.totalTenants} locataire${roll.totalTenants === 1 ? '' : 's'}`,
+      `${roll.totalLeases} document${roll.totalLeases === 1 ? '' : 's'} de bail · ${roll.totalTenants} locataire${roll.totalTenants === 1 ? '' : 's'}`,
       '',
       Math.round(roll.totalGrossUSD),
     ]

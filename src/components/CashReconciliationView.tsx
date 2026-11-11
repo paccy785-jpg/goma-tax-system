@@ -775,7 +775,7 @@ export const CashReconciliationView: React.FC<CashReconciliationViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="premium-table w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Session N°</th>
@@ -972,7 +972,7 @@ export const CashReconciliationView: React.FC<CashReconciliationViewProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="premium-table w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">Deposit Ref</th>

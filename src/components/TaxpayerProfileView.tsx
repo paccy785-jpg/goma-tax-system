@@ -32,15 +32,24 @@ import { Button, Panel } from './ui';
 import { DepartementFinancesSeal } from './DepartementFinancesSeal';
 import { IDENT_HEADINGS, identificationValues, VerticalBlankTable } from './notePerception/NpSectionTables';
 import { useAuth } from '../contexts/AuthContext';
+import { DeclarationAdmin, frIsoDay, subscribeToDeclarationAdmin } from '../services/declarationAdminService';
 import { useToast } from '../contexts/ToastContext';
 import { issueCpfDocumentCode } from '../services/declarationDocumentCode';
 
 /**
- * The smallest a printed declaration is ever scaled to fit one page. Below it
- * the text would be too small to read, so a longer declaration continues on a
- * second page instead.
+ * The smallest a printed declaration is ever scaled to fit its one portrait
+ * page. Below it the text would be too small to read, so a declaration longer
+ * still continues on a second page instead.
  */
-const MIN_PRINT_ZOOM = 0.7;
+const MIN_PRINT_ZOOM = 0.6;
+
+/**
+ * The narrowest the printed sheet is laid out, in CSS px: wide enough for the
+ * masthead beside the identification table, and for every column of the
+ * Identification des propriétés and lease tables. It caps the scale on a
+ * portrait page (the page's width divided by this).
+ */
+const MIN_PRINT_LAYOUT_W = 960;
 
 /** First fiscal year offered by the Exercice fiscal picker. */
 const FIRST_EXERCICE = 2025;
@@ -90,8 +99,8 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
   const [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => subscribeToBusinesses((d) => setTaxpayers(d || []), undefined, 1000), []);
-  useEffect(() => subscribeToLeases((d) => setLeases(d || []), undefined, 1000), []);
+  useEffect(() => subscribeToBusinesses((d) => setTaxpayers(d || []), undefined, null), []);
+  useEffect(() => subscribeToLeases((d) => setLeases(d || []), undefined, null), []);
   useEffect(() => subscribeToAddressRegistry(setAddressRegistry), []);
 
   // Saved tax calculations, from both Declarations subtabs.
@@ -102,6 +111,9 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
   // Bank Agent confirmations — they fill the "Réservé à l'administration" box.
   const [confirmations, setConfirmations] = useState<BankConfirmation[]>([]);
   useEffect(() => subscribeToBankConfirmations((d) => setConfirmations(d || [])), []);
+  // What the accountant filled in "Réservé à l'administration" (Comptable tab).
+  const [declAdmins, setDeclAdmins] = useState<DeclarationAdmin[]>([]);
+  useEffect(() => subscribeToDeclarationAdmin((d) => setDeclAdmins(d || [])), []);
 
   // The selected taxpayer's declared properties, read on demand (uncapped).
   useEffect(() => {
@@ -244,6 +256,8 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
   const showLocatifTables = declType !== 'foncier';
   /** The Impôt foncier print document. */
   const isFoncierDoc = declType === 'foncier';
+  /** The Impôt locatif print document. */
+  const isLocatifDoc = declType === 'locatif';
 
   /**
    * Payments the bank has confirmed for the calculations on this document —
@@ -263,10 +277,52 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
   }, [confirmations, myFonciers, myLocatifs, showFoncierTables, showLocatifTables]);
 
   /**
+   * "Réservé à l'administration" as the accountant filled it, for the
+   * calculations on this document, oldest first. A payment confirmed before
+   * that form existed keeps its line from the bank confirmation.
+   */
+  const adminLines = useMemo(() => {
+    const byId = new Map(declAdmins.map((a) => [a.id, a]));
+    const ids = [
+      ...(showFoncierTables ? myFonciers.map((c) => confirmationId('foncier', c.id)) : []),
+      ...(showLocatifTables ? myLocatifs.map((c) => confirmationId('locatif', c.id)) : []),
+    ];
+    const filled = ids
+      .map((id) => byId.get(id))
+      .filter((a): a is DeclarationAdmin => !!a)
+      .sort((a, b) => a.filledAt.localeCompare(b.filledAt));
+    const legacy = paidLines.filter((c) => !byId.has(c.id));
+    return [
+      ...legacy.map((c) => ({
+        id: c.id,
+        quittance: c.reference,
+        date: new Date(c.confirmedAt).toLocaleDateString('fr-FR'),
+        agent: '',
+        recepisse: '',
+        dateRecepisse: '',
+      })),
+      ...filled.map((a) => ({
+        id: a.id,
+        quittance: a.numeroQuittance,
+        date: frIsoDay(a.dateQuittance),
+        agent: a.nomQualiteAgent,
+        recepisse: a.numeroRecepisse,
+        dateRecepisse: frIsoDay(a.dateRecepisse),
+      })),
+    ];
+  }, [declAdmins, paidLines, myFonciers, myLocatifs, showFoncierTables, showLocatifTables]);
+  /** The agents named on this document, each once. */
+  const adminAgents = useMemo(
+    () => Array.from(new Set(adminLines.map((l) => l.agent).filter(Boolean))),
+    [adminLines]
+  );
+  const adminRecepisses = adminLines.filter((l) => l.recepisse || l.dateRecepisse);
+
+  /**
    * Print the taxpayer's file: the five tables, under a document heading, on
-   * landscape A4. Only this page's file is printed — the app's navigation and
-   * the search bar are left out. The landscape rule is added for this print
-   * alone, so receipts and certificates keep their own page size.
+   * a portrait page, like the note de perception. Only this page's file is
+   * printed — the app's navigation and the search bar are left out. The page
+   * rule is added for this print alone.
    */
   const printRef = useRef<HTMLDivElement>(null);
   const { userProfile } = useAuth();
@@ -274,10 +330,10 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
   /** A document number is being reserved for the print. */
   const [printing, setPrinting] = useState(false);
   /**
-   * Print the file on one A4 landscape sheet.
+   * Print the file on one portrait sheet.
    *
-   * A copy of the file is laid out on its own, at the paper's width and in the
-   * compact print layout, so the rest of the app can never add blank pages.
+   * A copy of the file is laid out on its own, across the paper's width and in
+   * the compact print layout, so the rest of the app can never add blank pages.
    * It is measured and scaled to fit one page — but never below MIN_PRINT_ZOOM,
    * so the text stays readable. Only a declaration with a lot of properties,
    * leases or calculations goes past that limit, and it then continues on a
@@ -318,14 +374,13 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       if (!printRef.current) return;
     }
 
-    // Printable area of a landscape page with 10 mm margins, sized to fit BOTH
-    // A4 (277 × 190 mm) and US Letter (259 × 196 mm) — the printer or "Save as
-    // PDF" may use either, so the file is laid out for the smaller of the two:
-    // 259 × 190 mm, in CSS px. On A4 it simply sits centred with a little more
-    // margin.
+    // Printable area of a portrait page with 12 mm margins — as on the note de
+    // perception — sized to fit both A4 (186 × 273 mm) and US Letter (191.9 ×
+    // 255.4 mm): the smaller of each, in CSS px.
     const mm = (v: number) => Math.floor((v * 96) / 25.4);
-    const PAGE_W = mm(259) - 8;
-    const PAGE_H = mm(190) - 16;
+    const PAGE_W = mm(186) - 8;
+    const PAGE_H = mm(255) - 16;
+    const MAX_ZOOM = PAGE_W / MIN_PRINT_LAYOUT_W;
 
     document.getElementById('pp-sheet')?.remove();
     const sheet = printRef.current.cloneNode(true) as HTMLElement;
@@ -335,24 +390,51 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
     if (codeSlot) codeSlot.textContent = code;
     sheet.style.cssText = `position:absolute;left:-20000px;top:0;width:${PAGE_W}px;`;
     document.body.appendChild(sheet);
-    const zoom = Math.max(MIN_PRINT_ZOOM, Math.min(1, PAGE_H / Math.max(1, sheet.scrollHeight)));
-    sheet.style.cssText = `width:${PAGE_W}px;`;
+    /*
+     * Scale to fit one portrait page, using the page's whole width.
+     *
+     * At a scale z the sheet is laid out 1/z times as wide as the page, so once
+     * scaled it spans the full width of the paper (never narrower than
+     * MIN_PRINT_LAYOUT_W, so the tables keep their columns). The largest scale
+     * at which the whole sheet fits one page is searched for; a longer sheet
+     * is laid out wider and scaled down further, to MIN_PRINT_ZOOM at most.
+     */
+    const heightAt = (z: number) => {
+      sheet.style.width = `${Math.floor(PAGE_W / z)}px`;
+      return sheet.scrollHeight * z;
+    };
+    let zoom = MAX_ZOOM;
+    if (heightAt(MAX_ZOOM) > PAGE_H) {
+      if (heightAt(MIN_PRINT_ZOOM) > PAGE_H) {
+        // Too long for one page even at the smallest scale: it continues on a
+        // second page at that size.
+        zoom = MIN_PRINT_ZOOM;
+      } else {
+        let lo = MIN_PRINT_ZOOM;
+        let hi = MAX_ZOOM;
+        for (let i = 0; i < 12; i++) {
+          const mid = (lo + hi) / 2;
+          if (heightAt(mid) <= PAGE_H) lo = mid;
+          else hi = mid;
+        }
+        zoom = lo;
+      }
+    }
+    const SHEET_W = Math.floor(PAGE_W / zoom);
+    sheet.style.cssText = `width:${SHEET_W}px;`;
 
     const page = document.createElement('style');
     page.setAttribute('data-profile-print', '');
-    // The page is given as explicit A4 landscape dimensions rather than the
-    // "landscape" keyword: with the keyword, the PDF can come out as an A4
-    // portrait page with the document turned sideways on it (as macOS Preview
-    // showed it). 297 × 210 mm is a landscape sheet in its own right.
-    page.textContent = `@page { size: 297mm 210mm; margin: 10mm; }
+    // A portrait page, like the note de perception.
+    page.textContent = `@page { size: portrait; margin: 12mm; }
       #pp-sheet { display: none; }
       @media print {
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
         body.print-profile > *:not(#pp-sheet) { display: none !important; }
         body.print-profile #pp-sheet {
           display: block !important;
-          width: ${PAGE_W}px !important;
-          max-width: ${PAGE_W}px !important;
+          width: ${SHEET_W}px !important;
+          max-width: ${SHEET_W}px !important;
           margin: 0 auto !important;
           zoom: ${zoom};
         }
@@ -549,13 +631,16 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
               <div className="text-sm font-bold uppercase tracking-[0.08em] text-ink leading-snug whitespace-nowrap">
                 République Démocratique du Congo
               </div>
-              <div className="text-xs font-semibold text-ink mt-1.5 whitespace-nowrap">Département des Finances</div>
+              <div className="text-xs font-semibold uppercase text-ink mt-1.5 whitespace-nowrap">Département des Finances</div>
             </div>
-            {/* Sceau du Département des Finances — centred right above the CPF-NK
-                line: the wrapper is exactly as wide as that line. */}
-            <div className="w-max flex flex-col items-center mt-1.5">
-              <DepartementFinancesSeal className="w-[48px] h-[48px] text-ink" />
-              <div className="text-xs font-semibold text-ink mt-1.5 whitespace-nowrap">
+            {/* Sceau du Département des Finances, centred right above the CPF-NK
+                line. That line is in capitals and wraps inside the masthead's
+                width — as on the note de perception — so the identification
+                table beside it keeps its room on the portrait page. */}
+            <div className="w-full flex flex-col items-center mt-1.5">
+              {/* The DF monogram is printed in red on the IF / IRL declarations. */}
+              <DepartementFinancesSeal className="w-[120px] h-[120px] text-ink" monogramColor="#D00000" />
+              <div className="text-xs font-semibold uppercase text-ink mt-1.5 text-center">
                 Coordination Provinciale des Finances du Nord-Kivu (CPF-NK)
               </div>
             </div>
@@ -564,8 +649,8 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
                 line (CPF-NK), leaving the identification table room to breathe. */}
             <div className="text-[12px] font-bold uppercase tracking-[0.08em] text-ink mt-2.5">
               {declType === 'foncier'
-                ? 'Déclaration de l’impôt foncier (IF)'
-                : 'Déclaration de l’impôt sur les revenus locatifs (IRL)'}
+                ? 'DÉCLARATION DES DROITS FONCIER (DF)'
+                : 'Déclaration des droits sur les revenus locatif (DRL)'}
             </div>
             <div className="text-[12px] font-semibold text-ink mt-1">Exercice fiscal : {exercice}</div>
           </div>
@@ -579,14 +664,14 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       )}
       {/* ---- 1. Identification du redevable ---- */}
       <Panel
-        // On the printed Impôt foncier declaration this table is titled
-        // "I) Identification du redevable" (with "II) Identification des
-        // propriétés" below it); on screen it stays "Identification du redevable".
+        // On the printed declarations (foncier and locatif) this table is
+        // titled "I) IDENTIFICATION DU REDEVABLE" — numbered, in capitals; on
+        // screen it stays "Identification du redevable".
         title={
-          isFoncierDoc ? (
+          isFoncierDoc || isLocatifDoc ? (
             <>
               <span className="pp-noprint">Identification du redevable</span>
-              <span className="hidden pp-printonly">I) Identification du redevable</span>
+              <span className="hidden pp-printonly uppercase">I) Identification du redevable</span>
             </>
           ) : (
             'Identification du redevable'
@@ -599,7 +684,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
         {/* Twelve columns, each wide enough for its heading and its value:
             the card scrolls sideways (visible scrollbar) rather than squeezing them. */}
         <div className="w-full overflow-x-auto scroll-x-visible pp-noprint">
-          <table className="w-full min-w-[1830px] table-fixed text-left border-collapse font-sans">
+          <table className="premium-table w-full min-w-[1830px] table-fixed text-left border-collapse font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/50">
                 {/* The columns of the Identification du redevable table in
@@ -707,7 +792,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
         padding="none"
       >
         <div className="w-full overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse font-sans">
+          <table className="premium-table w-full table-fixed text-left border-collapse font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/50">
                 <th className={`${TH} w-[12%] pl-6`}>Nature</th>
@@ -765,7 +850,18 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       <>
       {/* ---- 3. Précision sur les propriétés données en location ---- */}
       <Panel
-        title="Précision sur les propriétés données en location"
+        // Printed locatif declaration: "II) PRÉCISION SUR LES PROPRIÉTÉS
+        // DONNÉES EN LOCATION"; on screen the title is unchanged.
+        title={
+          isLocatifDoc ? (
+            <>
+              <span className="pp-noprint">Précision sur les propriétés données en location</span>
+              <span className="hidden pp-printonly uppercase">II) Précision sur les propriétés données en location</span>
+            </>
+          ) : (
+            'Précision sur les propriétés données en location'
+          )
+        }
         subtitle={
           !selected
             ? 'Aucun contribuable sélectionné'
@@ -776,20 +872,23 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
         {/* The table across — on screen and on the printed Impôt locatif
             declaration alike. */}
         <div className="w-full overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse font-sans">
+          <table className="premium-table pp-lease-table w-full table-fixed text-left border-collapse font-sans">
             <thead>
               <tr className="border-b border-line bg-surface2/50">
-                <th className={`${TH} w-[104px] pl-6`}>Numero</th>
+                {/* Widths sized so every heading's longest word (COMMUNE,
+                    PARCELLE, MENSUEL…) and every value fits its column, on
+                    screen and on the printed Impôt locatif declaration. */}
+                <th className={`${TH} w-[8%] pl-6`}>Numéro</th>
                 <th className={`${TH} w-[12%]`}>Noms des locataires</th>
                 <th className={`${TH} w-[7%]`}>Nature</th>
-                <th className={`${TH} w-[8%]`}>Ville</th>
+                <th className={`${TH} w-[6%]`}>Ville</th>
                 <th className={`${TH} w-[8%]`}>Commune</th>
-                <th className={`${TH} w-[10%]`}>Quartier</th>
-                <th className={`${TH} w-[9%]`}>Avenue</th>
-                <th className={`${TH} w-[7%]`}>Numero de parcelle</th>
-                <th className={`${TH} w-[15%]`}>Période de location</th>
+                <th className={`${TH} w-[8%]`}>Quartier</th>
+                <th className={`${TH} w-[7%]`}>Avenue</th>
+                <th className={`${TH} w-[8%]`}>Numéro de parcelle</th>
+                <th className={`${TH} w-[18%]`}>Période de location</th>
                 <th className={`${TH} w-[8%] text-right`}>Loyer mensuel</th>
-                <th className={`${TH} w-[11%] pr-6 text-right`}>Total revenu brut</th>
+                <th className={`${TH} w-[10%] pr-6 text-right`}>Total revenu brut</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -837,8 +936,18 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
                       <td className={TD}>
                         {l.startDate ? (
                           <>
-                            <span className="block text-[12px] font-medium tabular-nums whitespace-nowrap">
-                              {shortDate(l.startDate)} → {l.endDate ? shortDate(l.endDate) : 'En cours'}
+                            {/* The dates are already day/month/year: kept out of
+                                the translation layer, which would swap them as
+                                if they were US month/day dates. The end date
+                                moves under the start date when the column is
+                                too narrow for both. */}
+                            <span className="block text-[12px] font-medium tabular-nums">
+                              <span className="whitespace-nowrap">
+                                <span data-no-i18n>{shortDate(l.startDate)}</span> →
+                              </span>{' '}
+                              <span className="whitespace-nowrap">
+                                {l.endDate ? <span data-no-i18n>{shortDate(l.endDate)}</span> : 'En cours'}
+                              </span>
                             </span>
                             <span className="block text-[11px] text-muted mt-0.5">
                               {months} mois en {exercice}
@@ -888,7 +997,7 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
           isFoncierDoc ? (
             <>
               <span className="pp-noprint">Calcul d'impôts</span>
-              <span className="hidden pp-printonly">II) Identification des propriétés</span>
+              <span className="hidden pp-printonly uppercase">II) Identification des propriétés</span>
             </>
           ) : (
             "Calcul d'impôts"
@@ -946,7 +1055,18 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
       <>
       {/* ---- 5. Calcul d'impôts ---- */}
       <Panel
-        title="Calcul d'impôts"
+        // Printed locatif declaration: "III) CALCUL D'IMPÔTS"; on screen the
+        // title is unchanged.
+        title={
+          isLocatifDoc ? (
+            <>
+              <span className="pp-noprint">Calcul d'impôts</span>
+              <span className="hidden pp-printonly uppercase">III) Calcul d'impôts</span>
+            </>
+          ) : (
+            "Calcul d'impôts"
+          )
+        }
         subtitle={
           !selected
             ? 'Aucun contribuable sélectionné'
@@ -993,9 +1113,9 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
 
       {/* Signature block — printed only, under the last table: the seal on the
           left edge; place / date and the signatory centred under the table on
-          the foncier document, on the right edge on the locatif document. */}
+          the foncier document, and a little right of centre on the locatif one. */}
       {selected && (
-        <div className={`hidden pp-sign${isFoncierDoc ? '' : ' pp-sign-edge'}`}>
+        <div className={`hidden pp-sign${isLocatifDoc ? ' pp-sign-right-of-centre' : ''}`}>
           <span className="text-xs font-semibold text-ink whitespace-nowrap justify-self-start">
             {isFoncierDoc ? 'Sceau de l’entreprise' : 'Sceau de l’entreprise et signature'}
           </span>
@@ -1004,6 +1124,11 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
               Fait à .....................................le......./........./20.
             </div>
             <div className="text-xs font-semibold text-ink whitespace-nowrap mt-2">Nom et qualité du signataire</div>
+            {/* The taxpayer's name, filled in from the Identification du redevable
+                table (Noms ou dénomination sociale), right under the label. */}
+            {selected.businessName?.trim() && (
+              <div className="text-xs font-bold text-ink whitespace-nowrap mt-1">{selected.businessName.trim()}</div>
+            )}
           </div>
           {/* Foncier document: the signature on the right edge, on the "Fait à" line. */}
           {isFoncierDoc && (
@@ -1012,42 +1137,49 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
         </div>
       )}
 
-      {/* Notez — printed right above "Réservé à l'administration", one line
-          each: the foncier document lists (1), (2) and (3) — nature, usage,
-          measure; the locatif document lists (1), the nature codes, only. */}
+      {/* Notez — printed right above "Réservé à l'administration", each as a
+          vertical list, one code per line. The foncier document lists (1), (2)
+          and (3) — nature, usage, measure — side by side; the locatif document
+          lists (1), the nature codes, only. The eleven nature codes run down
+          two short columns. */}
       {selected && (
         <div className="hidden pp-notez">
-          {NOTEZ_LEGENDS.filter(({ n }) => isFoncierDoc || n === 1).map(({ n, entries }) => (
-            <div key={n}>
-              <span className="font-bold">{`(${n}) Notez :`}</span>{' '}
-              {entries.map(([code, label], i) => (
-                <React.Fragment key={code}>
-                  <span className="whitespace-nowrap">
-                    <span className="font-bold">{code}</span>
-                    {' : '}
-                    <span>{label}</span>
-                    {i === entries.length - 1 ? '.' : ','}
-                  </span>
-                  {i === entries.length - 1 ? '' : ' '}
-                </React.Fragment>
-              ))}
-            </div>
-          ))}
+          <div className="pp-notez-cols">
+            {NOTEZ_LEGENDS.filter(({ n }) => isFoncierDoc || n === 1).map(({ n, entries }) => (
+              <div key={n} className={n === 1 ? 'pp-notez-col pp-notez-col-split' : 'pp-notez-col'}>
+                <div className="font-bold">{`(${n}) Notez :`}</div>
+                <ul className="pp-notez-list">
+                  {entries.map(([code, label]) => (
+                    <li key={code}>
+                      <span className="font-bold">{code}</span>
+                      {' : '}
+                      <span>{label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Réservé à l'administration — printed only, at the bottom of the page,
-          left blank for the receiving office to fill in by hand. */}
+          filled with what the accountant entered in "Remplir la déclaration"
+          (Comptable tab); the stamp is left for the office to apply by hand. */}
       {selected && (
         <div className="hidden pp-admin">
           <div className="text-[12px] font-bold uppercase tracking-[0.12em] text-ink mb-1.5">
             {/* Numbered III) on the printed Impôt foncier declaration, after
                 "I) Identification du redevable" and "II) Identification des propriétés". */}
-            {isFoncierDoc ? 'III) Réservé à l’administration' : 'Réservé à l’administration'}
+            {isFoncierDoc
+              ? 'III) Réservé à l’administration'
+              : isLocatifDoc
+                ? 'IV) Réservé à l’administration'
+                : 'Réservé à l’administration'}
           </div>
           {/* One layout for both declarations — foncier and locatif print the
               same box. */}
-          <table className="w-full table-fixed border-collapse">
+          <table className="premium-table w-full table-fixed border-collapse">
             <thead>
               <tr>
                 <th className="w-[25%]">Numéro de la quittance ou BV</th>
@@ -1057,15 +1189,20 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
               </tr>
             </thead>
             <tbody>
-              {/* One line per confirmed payment (or one blank line). The agent
-                  and the stamp are given once, so their cells span the box. */}
-              {(paidLines.length ? paidLines : [null]).map((c, k, all) => (
+              {/* One line per declaration the accountant filled in (or one
+                  blank line). The agent and the stamp are given once, so their
+                  cells span the box; the stamp stays blank, stamped by hand. */}
+              {(adminLines.length ? adminLines : [null]).map((c, k, all) => (
                 <tr key={c?.id || 'blank'}>
-                  <td className={c ? 'pp-admin-filled' : ''}>{c?.reference || ''}</td>
-                  <td className={c ? 'pp-admin-filled' : ''}>
-                    {c ? new Date(c.confirmedAt).toLocaleDateString('fr-FR') : ''}
-                  </td>
-                  {k === 0 && <td rowSpan={all.length + 2} />}
+                  <td className={c ? 'pp-admin-filled' : ''}>{c?.quittance || ''}</td>
+                  <td className={c ? 'pp-admin-filled' : ''}>{c?.date || ''}</td>
+                  {k === 0 && (
+                    <td rowSpan={all.length + 2} className={adminAgents.length ? 'pp-admin-filled' : ''}>
+                      {adminAgents.map((a) => (
+                        <div key={a}>{a}</div>
+                      ))}
+                    </td>
+                  )}
                   {k === 0 && <td rowSpan={all.length + 2} />}
                 </tr>
               ))}
@@ -1076,8 +1213,16 @@ export const TaxpayerProfileView: React.FC<{ userRole: UserRole }> = () => {
                 <th className="pp-admin-subhead">Date du récépissé</th>
               </tr>
               <tr>
-                <td className="pp-admin-short" />
-                <td className="pp-admin-short" />
+                <td className={`pp-admin-short${adminRecepisses.length ? ' pp-admin-filled' : ''}`}>
+                  {adminRecepisses.map((l) => (
+                    <div key={l.id}>{l.recepisse}</div>
+                  ))}
+                </td>
+                <td className={`pp-admin-short${adminRecepisses.length ? ' pp-admin-filled' : ''}`}>
+                  {adminRecepisses.map((l) => (
+                    <div key={l.id}>{l.dateRecepisse}</div>
+                  ))}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -1174,7 +1319,7 @@ const EmptyCalc: React.FC<{
   </div>
   )}
   <div className="w-full overflow-x-auto pp-noprint">
-    <table className="w-full table-fixed text-left border-collapse font-sans">
+    <table className="premium-table w-full table-fixed text-left border-collapse font-sans">
       <thead>
         <tr className="border-b border-line bg-surface2/50">
           {headers.map((h, i) => (

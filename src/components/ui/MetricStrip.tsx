@@ -30,7 +30,7 @@ export const MetricStrip: React.FC<MetricStripProps> = ({
 
   return (
     <div
-      className={`border-y border-line my-6 grid ${colGridClasses} divide-y sm:divide-y-0 sm:divide-x divide-line bg-surface/40 ${className}`}
+      className={`kpi-grid my-6 grid gap-4 ${colGridClasses} ${className}`}
     >
       {items.map((item, idx) => {
         const trendColorClass = {
@@ -41,29 +41,29 @@ export const MetricStrip: React.FC<MetricStripProps> = ({
         }[item.trendType || 'muted'];
 
         return (
-          <div key={idx} className="py-4.5 px-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <span className="text-[12px] font-bold uppercase tracking-wider text-muted font-sans">
+          <div key={idx} data-tone={item.trendType || 'muted'} className="kpi-card p-5 sm:p-6 flex flex-col justify-between min-w-0">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <span className="kpi-label text-[11px] font-bold uppercase tracking-[0.1em] text-muted font-sans leading-relaxed">
                 {item.label}
               </span>
-              {item.icon && <span className="text-muted/70">{item.icon}</span>}
+              {item.icon && <span className="kpi-icon shrink-0" aria-hidden="true">{item.icon}</span>}
             </div>
 
-            <div className="font-display text-[29px] font-bold text-ink leading-tight tabular-nums tracking-tight">
+            <div className="kpi-value font-display text-[34px] font-bold text-ink leading-tight tabular-nums tracking-tight">
               {item.value}
             </div>
 
             {(item.trend || item.subline) && (
-              <div className="mt-1.5 flex items-center gap-2 text-xs font-sans">
+              <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs font-sans">
                 {item.trend && (
                   <span
-                    className={`inline-flex items-center font-bold px-1.5 py-0.5 rounded-full text-[11px] tabular-nums ${trendColorClass}`}
+                    className={`kpi-trend inline-flex items-center font-bold px-2 py-1 rounded-full text-[11px] tabular-nums ${trendColorClass}`}
                   >
                     {item.trend}
                   </span>
                 )}
                 {item.subline && (
-                  <span className="text-muted text-[12px] truncate">
+                  <span className="text-muted text-[12px] leading-relaxed">
                     {item.subline}
                   </span>
                 )}

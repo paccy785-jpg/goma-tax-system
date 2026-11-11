@@ -76,9 +76,9 @@ export const BailleurPicker: React.FC<{
 
   useEffect(() => {
     if (!active) return;
-    const u1 = subscribeToBusinesses((d) => setBusinesses(d || []), undefined, 1000);
-    const u2 = subscribeToParcels((d) => setParcels(d || []), undefined, 1000);
-    const u3 = subscribeToLeases((d) => setLeases(d || []), undefined, 1000);
+    const u1 = subscribeToBusinesses((d) => setBusinesses(d || []), undefined, null);
+    const u2 = subscribeToParcels((d) => setParcels(d || []), undefined, null);
+    const u3 = subscribeToLeases((d) => setLeases(d || []), undefined, null);
     return () => {
       u1();
       u2();

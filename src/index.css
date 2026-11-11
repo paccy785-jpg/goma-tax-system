@@ -397,6 +397,27 @@
   }
 }
 
+/* Every printed document: no greyed-out text. On paper, the muted and faint
+   greys — table headings, labels, notes, units — print in the same dark ink as
+   the rest, so a printed page reads clearly. (Coloured accents are kept.) */
+@media print {
+  :root,
+  :host {
+    --color-muted: var(--color-ink);
+    --color-faint: var(--color-ink);
+    --color-slate-300: var(--color-ink);
+    --color-slate-400: var(--color-ink);
+    --color-slate-500: var(--color-ink);
+    --color-slate-600: var(--color-ink);
+    --color-slate-700: var(--color-ink);
+    --color-gray-300: var(--color-ink);
+    --color-gray-400: var(--color-ink);
+    --color-gray-500: var(--color-ink);
+    --color-gray-600: var(--color-ink);
+    --color-gray-700: var(--color-ink);
+  }
+}
+
 /* A sideways scrollbar that stays visible (macOS hides overlay scrollbars
    until scrolling), so a wide card shows it can be scrolled. */
 /* Firefox only: in Chrome and Safari the standard properties would switch off
@@ -540,13 +561,18 @@
   border-bottom: 2px solid var(--color-ink);
 }
 .pp-compact .pp-top-left {
-  display: block !important;
+  /* One centred column: every line of the masthead — country, Département des
+     Finances, seal, CPF-NK, DPR-NK, the document title and the exercice — sits
+     centred right under the one above. */
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
   /* As wide as its longest one-line entry (the country name, the CPF-NK and
      DPR-NK lines); the declaration title wraps inside that width, so the
      identification table beside it keeps the room it needs. */
   flex: 0 0 auto;
   width: min-content;
-  text-align: left;
+  text-align: center;
 }
 /* Identification du redevable, in the narrow right half of the printed header:
    each column is at least as wide as its longest heading word, headings wrap
@@ -630,6 +656,35 @@
   grid-column: 3;
   justify-self: end;
   text-align: right;
+}
+
+/* Impôt locatif document: place / date and the signatory a little closer to
+   the right edge than the centre — the room left of them twice the room right
+   of them — but not against the edge. */
+.pp-compact .pp-sign.pp-sign-right-of-centre {
+  grid-template-columns: 2fr auto 1fr;
+}
+
+/* Impôt foncier document: (1), (2) and (3) Notez side by side, each a vertical
+   list with one code per line; the eleven nature codes of (1) run down two
+   short columns so the block stays low on the page. */
+.pp-compact .pp-notez-cols {
+  display: grid;
+  grid-template-columns: 2.6fr 1fr 1.5fr;
+  column-gap: 28px;
+  align-items: start;
+}
+.pp-compact .pp-notez-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+.pp-compact .pp-notez-list li {
+  break-inside: avoid;
+}
+.pp-compact .pp-notez-col-split .pp-notez-list {
+  columns: 2;
+  column-gap: 24px;
 }
 
 /* (1) Notez — the Nature code legend, right above Réservé à l'administration. */
@@ -740,49 +795,86 @@
   display: none !important;
 }
 
-/* Impôt foncier and Impôt locatif print documents (#pp-sheet): every text one
-   pixel larger again — the standard sizes, the custom sizes, the table
+/* Impôt foncier and Impôt locatif print documents (#pp-sheet): every text larger
+   again (one more pixel on 2026-11-10) — the standard sizes, the custom sizes, the table
    headings and cells, the card titles, the Notez legend and the Réservé à
    l'administration box. The note de perception print is not affected. */
 #pp-sheet.pp-compact {
-  --text-xs: calc(0.75rem + 3px);
-  --text-sm: calc(0.875rem + 3px);
-  --text-base: calc(1rem + 3px);
-  --text-lg: calc(1.125rem + 3px);
-  --text-xl: calc(1.25rem + 3px);
-  --text-2xl: calc(1.5rem + 3px);
-  --text-3xl: calc(1.875rem + 3px);
-  --text-4xl: calc(2.25rem + 3px);
+  --text-xs: calc(0.75rem + 4px);
+  --text-sm: calc(0.875rem + 4px);
+  --text-base: calc(1rem + 4px);
+  --text-lg: calc(1.125rem + 4px);
+  --text-xl: calc(1.25rem + 4px);
+  --text-2xl: calc(1.5rem + 4px);
+  --text-3xl: calc(1.875rem + 4px);
+  --text-4xl: calc(2.25rem + 4px);
 }
 #pp-sheet.pp-compact .text-\[10px\] {
-  font-size: 12px;
-}
-#pp-sheet.pp-compact .text-\[11px\] {
   font-size: 13px;
 }
+#pp-sheet.pp-compact .text-\[11px\] {
+  font-size: 14px;
+}
 #pp-sheet.pp-compact .text-\[12px\] {
+  font-size: 15px;
+}
+#pp-sheet.pp-compact .text-\[13px\] {
   font-size: 14px;
 }
 #pp-sheet.pp-compact section h2 {
-  font-size: 15px !important;
+  font-size: 16px !important;
 }
 #pp-sheet.pp-compact th {
-  font-size: 11px !important;
+  font-size: 12px !important;
 }
 #pp-sheet.pp-compact td,
 #pp-sheet.pp-compact td .text-xs,
 #pp-sheet.pp-compact td.text-xs {
-  font-size: 13px !important;
+  font-size: 14px !important;
 }
 #pp-sheet.pp-compact .pp-notez {
-  font-size: 13px;
+  font-size: 14px;
 }
 #pp-sheet.pp-compact .pp-admin th,
 #pp-sheet.pp-compact .pp-admin .pp-admin-siglabel {
-  font-size: 11.5px !important;
+  font-size: 12.5px !important;
 }
 #pp-sheet.pp-compact .pp-admin td.pp-admin-filled {
-  font-size: 13px !important;
+  font-size: 14px !important;
+}
+#pp-sheet.pp-compact .pp-doc-code {
+  font-size: 15px;
+}
+/* Impôt locatif: the Précision sur les propriétés données en location table —
+   tighter cell gutters on paper so every heading and value fits its column. */
+#pp-sheet.pp-compact .pp-lease-table th,
+#pp-sheet.pp-compact .pp-lease-table td {
+  padding-left: 5px !important;
+  padding-right: 5px !important;
+}
+#pp-sheet.pp-compact .pp-lease-table th:first-child,
+#pp-sheet.pp-compact .pp-lease-table td:first-child {
+  padding-left: 10px !important;
+}
+#pp-sheet.pp-compact .pp-lease-table th:last-child,
+#pp-sheet.pp-compact .pp-lease-table td:last-child {
+  padding-right: 10px !important;
+}
+/* With the larger text, the wide tables (the foncier Identification des
+   propriétés, the locatif leases) take tighter cell gutters so every column
+   stays on the page. */
+#pp-sheet.pp-compact .pp-auto-table th,
+#pp-sheet.pp-compact .pp-auto-table td {
+  padding-left: 5px !important;
+  padding-right: 5px !important;
+}
+#pp-sheet.pp-compact .pp-auto-table th:first-child,
+#pp-sheet.pp-compact .pp-auto-table td:first-child {
+  padding-left: 10px !important;
+}
+#pp-sheet.pp-compact .pp-auto-table th:last-child,
+#pp-sheet.pp-compact .pp-auto-table td:last-child {
+  padding-right: 10px !important;
 }
 /* …and a little less empty space around the blocks, so the larger text still
    fits on one page instead of being shrunk back down to fit. */
@@ -797,17 +889,17 @@
   padding-bottom: 4px !important;
 }
 #pp-sheet.pp-compact .pp-sign {
-  margin-top: 10px !important;
-  padding-bottom: 10px;
+  margin-top: 6px !important;
+  padding-bottom: 2px;
 }
 #pp-sheet.pp-compact .pp-notez {
   margin-bottom: 4px;
 }
 #pp-sheet.pp-compact .pp-admin td {
-  height: 34px;
+  height: 26px;
 }
 #pp-sheet.pp-compact .pp-admin td.pp-admin-short {
-  height: 26px;
+  height: 22px;
 }
 #pp-sheet.pp-compact .np-vertical-table th,
 #pp-sheet.pp-compact .np-vertical-table td,
@@ -820,4 +912,192 @@
 #pp-sheet.pp-compact .pp-admin th {
   padding-top: 4px !important;
   padding-bottom: 4px !important;
+}
+
+/* Raised calendar with stacked paper edges and a shallow perspective. */
+.meeting-calendar-shell {
+  perspective: 1800px;
+  padding: 4px 4px 18px;
+}
+.meeting-calendar {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 20px;
+  transform: rotateX(3deg);
+  transform-origin: center top;
+  box-shadow: 0 5px 0 var(--color-surface2), 0 6px 0 var(--color-line),
+    0 11px 0 var(--color-surface2), 0 12px 0 var(--color-line), 0 28px 45px -20px rgba(20, 33, 52, .4);
+}
+.meeting-day {
+  min-height: 84px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: linear-gradient(150deg, var(--color-surface), var(--color-surface2));
+  box-shadow: 0 3px 0 var(--color-line);
+  padding: 8px 2px;
+  text-align: center;
+  color: var(--color-ink);
+  transition: transform .18s, box-shadow .18s;
+}
+.meeting-day:hover { transform: translateY(-3px); box-shadow: 0 6px 0 var(--color-line); }
+.meeting-day-selected { border-color: var(--color-accent); box-shadow: 0 3px 0 var(--color-accent); }
+.meeting-day:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.meeting-input { display: block; width: 100%; margin-top: 8px; padding: 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface2); color: var(--color-ink); font-weight: 400; }
+@media (max-width: 640px) { .meeting-day { min-height: 62px; border-radius: 8px; } }
+@media (prefers-reduced-motion: reduce) { .meeting-day { transition: none; } .meeting-day:hover { transform: none; } }
+
+/* Shared KPI surfaces: a lit face, recessed border and a solid raised edge. */
+.kpi-grid { perspective: 1400px; }
+.kpi-card {
+  --kpi-tone: var(--color-accent);
+  position: relative;
+  isolation: isolate;
+  border: 1px solid color-mix(in oklch, var(--color-line), white 12%);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in oklch, var(--kpi-tone) 8%, transparent), transparent 62%),
+    linear-gradient(145deg, var(--color-surface) 15%, color-mix(in oklch, var(--color-surface2), white 45%) 100%);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 rgb(255 255 255 / .65),
+    0 4px 0 color-mix(in oklch, var(--color-line), white 16%),
+    0 5px 0 color-mix(in oklch, var(--color-line), var(--color-ink) 10%),
+    0 14px 24px -14px rgb(23 37 57 / .28),
+    0 22px 40px -28px rgb(23 37 57 / .22);
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease, border-color 220ms ease;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 5px;
+  border-radius: 15px;
+  border: 1px solid rgb(255 255 255 / .6);
+  pointer-events: none;
+}
+.kpi-card::after {
+  content: '';
+  position: absolute;
+  left: 24px;
+  top: -1px;
+  width: 36px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: var(--kpi-tone);
+  box-shadow: 0 2px 9px color-mix(in oklch, var(--kpi-tone) 20%, transparent);
+  pointer-events: none;
+}
+.kpi-card[data-tone='sage'] { --kpi-tone: var(--color-sage); }
+.kpi-card[data-tone='warn'] { --kpi-tone: var(--color-warn); }
+.kpi-card[data-tone='danger'] { --kpi-tone: var(--color-danger); }
+.kpi-card[data-tone='muted'] { --kpi-tone: var(--color-navy2); }
+.kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  color: var(--kpi-tone);
+  border: 1px solid color-mix(in oklch, var(--kpi-tone) 16%, white);
+  background: linear-gradient(145deg, white, color-mix(in oklch, var(--kpi-tone) 12%, var(--color-surface)));
+  box-shadow: inset 0 1px 0 white, 0 3px 0 color-mix(in oklch, var(--kpi-tone) 20%, var(--color-line)), 0 7px 12px -8px var(--kpi-tone);
+}
+.kpi-icon svg { width: 19px; height: 19px; filter: drop-shadow(0 1px 0 white); }
+.kpi-value { text-shadow: 0 1px 0 white, 0 3px 8px rgb(23 37 57 / .06); overflow-wrap: anywhere; }
+.kpi-trend { border: 1px solid rgb(255 255 255 / .65); box-shadow: inset 0 1px 0 rgb(255 255 255 / .65), 0 1px 2px rgb(23 37 57 / .05); }
+.kpi-report-card { min-width: 0; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .kpi-card:hover {
+    transform: translateY(-4px);
+    border-color: color-mix(in oklch, var(--kpi-tone) 25%, var(--color-line));
+    box-shadow: inset 0 1px 0 white, 0 5px 0 color-mix(in oklch, var(--color-line), white 16%), 0 6px 0 color-mix(in oklch, var(--color-line), var(--color-ink) 10%), 0 20px 30px -15px rgb(23 37 57 / .28);
+  }
+}
+@media (prefers-reduced-motion: reduce) { .kpi-card { transition: none; } }
+@media print {
+  .kpi-card { background: white; box-shadow: none; border: 1px solid #aaa; break-inside: avoid; transform: none; }
+  .kpi-card::before, .kpi-card::after { display: none; }
+  .kpi-icon, .kpi-trend, .kpi-value { box-shadow: none; text-shadow: none; filter: none; }
+}
+
+/* Screen-only data-table finish. Official printed forms keep their paper layout. */
+@media screen {
+  .premium-table:not(:where(.pp-compact *)) {
+    --table-rule: color-mix(in oklch, var(--color-line) 72%, var(--color-surface));
+    color: var(--color-ink);
+    background-color: var(--color-surface);
+  }
+  section:has(.premium-table:not(:where(.pp-compact *))) {
+    border-color: color-mix(in oklch, var(--color-line), white 15%);
+    box-shadow: 0 2px 4px rgb(23 37 57 / .025), 0 12px 30px -16px rgb(23 37 57 / .14);
+  }
+  .premium-table:not(:where(.pp-compact *)) > thead {
+    background: linear-gradient(180deg, color-mix(in oklch, var(--color-navy) 4%, white), color-mix(in oklch, var(--color-navy) 8%, white));
+  }
+  .premium-table:not(:where(.pp-compact *)) > thead > tr {
+    background: transparent;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .premium-table:not(:where(.pp-compact *)) > thead > tr > :is(th, td) {
+    padding-top: 16px;
+    padding-bottom: 16px;
+    color: color-mix(in oklch, var(--color-navy) 75%, var(--color-muted));
+    font-weight: 700;
+    letter-spacing: .055em;
+    line-height: 1.4;
+    vertical-align: middle;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .8), inset 0 -2px 0 color-mix(in oklch, var(--color-line) 70%, transparent);
+  }
+  .premium-table:not(:where(.pp-compact *)) > thead :is(th, td) :where(span) { color: inherit; }
+  .premium-table:not(:where(.pp-compact *)) > thead > tr > th > button {
+    color: inherit;
+    font-weight: inherit;
+  }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr {
+    border-bottom-color: var(--table-rule);
+    transition: background-color 160ms ease;
+  }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr > :is(td, th) {
+    border-bottom-color: var(--table-rule);
+    vertical-align: middle;
+  }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr:nth-child(even) {
+    background-image: linear-gradient(rgb(23 37 57 / .018), rgb(23 37 57 / .018));
+  }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr:last-child { border-bottom: 0; }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr:focus-within {
+    background-color: color-mix(in oklch, var(--color-accent-soft) 40%, var(--color-surface));
+    outline: 1px solid color-mix(in oklch, var(--color-accent) 35%, transparent);
+    outline-offset: -1px;
+  }
+  .premium-table:not(:where(.pp-compact *)) > tbody > tr[aria-expanded='true'] {
+    background-color: color-mix(in oklch, var(--color-accent-soft) 45%, var(--color-surface));
+  }
+  .premium-table:not(:where(.pp-compact *)) > tfoot {
+    background: linear-gradient(180deg, var(--color-surface), var(--color-surface2));
+    border-top: 2px solid var(--color-line);
+    font-weight: 700;
+  }
+  .overflow-x-auto:has(> .premium-table:not(:where(.pp-compact *))) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--color-navy) 30%, var(--color-line)) var(--color-surface2);
+  }
+  @media (hover: hover) {
+    .premium-table:not(:where(.pp-compact *)) > tbody > tr:hover {
+      background-color: color-mix(in oklch, var(--color-accent-soft) 28%, var(--color-surface));
+    }
+    .premium-table:not(:where(.pp-compact *)) > tbody > tr:hover > :is(td, th):first-child {
+      box-shadow: inset 3px 0 0 color-mix(in oklch, var(--color-accent) 65%, var(--color-line));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .premium-table:not(:where(.pp-compact *)) > tbody > tr { transition: none; }
+  }
+}
+
+@media screen {
+  /* Twelve declaration columns need enough room for whole header words. */
+  .foncier-register-table:not(:where(.pp-compact *)) { min-width: 1300px; }
 }

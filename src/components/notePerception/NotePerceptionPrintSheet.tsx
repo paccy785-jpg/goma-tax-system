@@ -56,6 +56,19 @@ function printValues(note: NotePerception, taxpayer: Business | null, ville: str
     Qualité: t.qualite,
     Signature: <Sig src={t.signature} />,
   };
+  // The ordonnateur's part, once filled in — like the taxateur's. The name goes
+  // in the "Nom et signature" row; the signature itself is still by hand.
+  const ordonnateur: BlankValues = {};
+  const o = note.ordonnateur;
+  if (o) {
+    Object.assign(ordonnateur, {
+      "Avis de l'ordonnateur": o.avis,
+      'Montant ordonné en chiffres': formatMoney(o.montantOrdonneUSD),
+      'Montant ordonné en lettres': o.montantOrdonneEnLettres,
+      'Le paiement doit intervenir au plus tard le': frDay(o.paiementAuPlusTardLe),
+      "Nom et signature de l'ordonnateur": o.nomOrdonnateur,
+    });
+  }
   const comptable: BlankValues = {};
   const c = note.comptable;
   if (c) {
@@ -79,7 +92,7 @@ function printValues(note: NotePerception, taxpayer: Business | null, ville: str
       Date: frDay(c.date),
     });
   }
-  return { ident, taxateur, comptable };
+  return { ident, taxateur, ordonnateur, comptable };
 }
 
 /**
@@ -103,13 +116,15 @@ export const NotePerceptionPrintSheet = React.forwardRef<
           <div className="text-sm font-bold uppercase tracking-[0.08em] text-ink leading-snug whitespace-nowrap">
             République Démocratique du Congo
           </div>
-          <div className="text-xs font-semibold text-ink mt-1.5 whitespace-nowrap">Département des Finances</div>
+          <div className="text-xs font-semibold uppercase text-ink mt-1.5 whitespace-nowrap">Département des Finances</div>
         </div>
-        {/* Sceau du Département des Finances — centred right above the CPF-NK
-            line: the wrapper is exactly as wide as that line. */}
-        <div className="w-max flex flex-col items-center mt-1.5">
-          <DepartementFinancesSeal className="w-[48px] h-[48px] text-ink" />
-          <div className="text-xs font-semibold text-ink mt-1.5 whitespace-nowrap">
+        {/* Sceau du Département des Finances, centred right above the CPF-NK
+            line. That line is in capitals and wraps inside the masthead's width,
+            so the identification table beside it keeps its room. */}
+        <div className="w-full flex flex-col items-center mt-1.5">
+          {/* The DF monogram in red, as on the IF / IRL declarations. */}
+          <DepartementFinancesSeal className="w-[120px] h-[120px] text-ink" monogramColor="#D00000" />
+          <div className="text-xs font-semibold uppercase text-ink mt-1.5 text-center">
             Coordination Provinciale des Finances du Nord-Kivu (CPF-NK)
           </div>
         </div>
@@ -121,8 +136,11 @@ export const NotePerceptionPrintSheet = React.forwardRef<
         <div className="np-doc-title text-[12px] font-bold uppercase tracking-[0.08em] text-ink mt-2.5">Note de perception</div>
       </div>
       <div className="pp-top-right">
+        <div data-np-document-code className="text-right text-[12px] font-bold text-ink mb-1" />
         {/* ---- 1. Identification du redevable ---- */}
-        <Panel title="Identification du redevable" padding="none">
+        {/* Every table title of the printed note is numbered I) to IV) and in
+            capitals (CSS, so it is still translated in English). */}
+        <Panel title={<span className="uppercase">I) Identification du redevable</span>} padding="none">
           {/* Set vertically, like the taxateur's table below: one row per
               column of the Identification du redevable table in Enregistrement. */}
           <VerticalBlankTable headings={IDENT_HEADINGS} label="Identification du redevable" headingWidth="52%" values={v?.ident} />
@@ -131,17 +149,17 @@ export const NotePerceptionPrintSheet = React.forwardRef<
     </div>
 
     {/* ---- 2. Remplir par le service taxateur — the note de perception table ---- */}
-    <Panel title="Remplir par le service taxateur" padding="none">
+    <Panel title={<span className="uppercase">II) Remplir par le service taxateur</span>} padding="none">
       <TaxateurBlankTable values={v?.taxateur} />
     </Panel>
 
     {/* ---- 3. Remplir par l'ordonnateur ---- */}
-    <Panel title="Remplir par l'ordonnateur" padding="none">
-      <OrdonnateurBlankTable />
+    <Panel title={<span className="uppercase">III) Remplir par l'ordonnateur</span>} padding="none">
+      <OrdonnateurBlankTable values={v?.ordonnateur} />
     </Panel>
 
     {/* ---- 4. Remplir par le comptable ---- */}
-    <Panel title="Remplir par le comptable" padding="none">
+    <Panel title={<span className="uppercase">IV) Remplir par le comptable</span>} padding="none">
       <ComptableBlankTable values={v?.comptable} />
     </Panel>
 

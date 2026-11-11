@@ -13,6 +13,8 @@ import { UserRole } from '../types';
 import { logAuditEvent } from './dbService';
 import { formatMoney } from '../utils/money';
 import { normalizeReference, referenceClaimId } from '../utils/bankReference';
+import { roundMoney } from '../utils/frenchNumber';
+import { requireMoney } from '../utils/paymentAmounts';
 
 /**
  * Bank Agent confirmations — the bank's word that a declared tax was paid.
@@ -42,6 +44,14 @@ export type DeclarationKind = 'foncier' | 'locatif';
 export const DECLARATION_KIND_LABELS: Record<DeclarationKind, string> = {
   foncier: 'Impôt foncier',
   locatif: 'Impôt locatif',
+};
+
+/** What a receipt in Historique des paiements can be for: a declaration, or a note de perception. */
+export type ReceiptKind = DeclarationKind | 'notePerception';
+
+export const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {
+  ...DECLARATION_KIND_LABELS,
+  notePerception: 'Note de perception',
 };
 
 export interface BankConfirmation {
@@ -92,6 +102,12 @@ function fallbackReceiptNumber(id: string, confirmedAt: string): string {
 export const receiptNumberOf = (c: Pick<BankConfirmation, 'id' | 'receiptNumber' | 'confirmedAt'>) =>
   c.receiptNumber || fallbackReceiptNumber(c.id, c.confirmedAt);
 
+/**
+ * A receipt of Historique des paiements: a bank confirmation of a declaration,
+ * or a note de perception's confirmed payment in the same shape.
+ */
+export type PaymentReceipt = Omit<BankConfirmation, 'kind'> & { kind: ReceiptKind };
+
 export const confirmationId = (kind: DeclarationKind, calculationId: string) => `${kind}_${calculationId}`;
 
 /** Normalised form a reference is compared in, to catch the same one typed twice. */
@@ -117,6 +133,8 @@ export async function confirmPayment(
   /** References already used, normalised — a reference pays one declaration. */
   usedReferences: Set<string>
 ): Promise<BankConfirmation> {
+  requireMoney(input.amountUSD, 'Paiement');
+  if (input.kind !== 'foncier' && input.kind !== 'locatif') throw new Error('Type de déclaration invalide.');
   const reference = input.reference.trim().replace(/\s+/g, ' ');
   if (!reference) throw new Error('Saisissez la référence du paiement.');
   if (usedReferences.has(normalizeReference(reference))) {
@@ -137,7 +155,7 @@ export async function confirmPayment(
     calculationId: input.calculationId,
     contribuableName: input.contribuableName,
     ...(input.contribuableNif ? { contribuableNif: input.contribuableNif } : {}),
-    amountUSD: Math.round(input.amountUSD * 100) / 100,
+    amountUSD: roundMoney(input.amountUSD),
     ...(input.modePaiement ? { modePaiement: input.modePaiement } : {}),
     reference,
     confirmedAt: new Date().toISOString(),
@@ -161,18 +179,33 @@ export async function confirmPayment(
   // counter that may only move forward, so a receipt exists exactly when — and
   // only when — the payment is confirmed, and no two receipts share a number.
   const counterRef = doc(db, 'counters', RECEIPT_COUNTER_ID);
-  const commit = (withCounter: boolean, withClaim: boolean) =>
+  const commit = () =>
     runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       if (existing.exists()) {
         throw new Error('Ce paiement a déjà été confirmé.');
       }
+      // The accountant fills in "Réservé à l'administration" first.
+      const filled = await transaction.get(doc(db, 'declarationAdmin', id));
+      if (!filled.exists()) {
+        throw new Error('Remplissez d’abord la déclaration (Réservé à l’administration).');
+      }
+      const calculation = await transaction.get(doc(db,
+        input.kind === 'foncier' ? 'foncierCalculations' : 'taxCalculations', input.calculationId));
+      if (!calculation.exists()) throw new Error('Cette déclaration n’existe plus.');
+      const source = calculation.data();
+      const amountDue = input.kind === 'foncier' ? source.totalImpotDuUSD : source.soldeUSD;
+      if (!Number.isFinite(amountDue) || amountDue <= 0 || roundMoney(amountDue) !== record.amountUSD) {
+        throw new Error('Le montant à confirmer ne correspond pas au solde de la déclaration. Rechargez la déclaration.');
+      }
+      // Firestore requires every read before the first write, including the counter.
+      const counter = await transaction.get(counterRef);
       // A bank reference pays one declaration, and the claim is taken here —
       // inside the transaction that files the confirmation — rather than
       // against the caller's list of confirmations. Firestore serialises the
       // two contenders on this document, so the second one is refused instead
       // of acknowledging the same transfer twice.
-      if (withClaim) {
+      {
         const claim = await transaction.get(claimRef);
         if (claim.exists()) {
           throw new Error(`La référence « ${reference} » a déjà été utilisée pour un autre paiement.`);
@@ -186,43 +219,16 @@ export async function confirmPayment(
           claimedAt: record.confirmedAt,
         });
       }
-      if (!withCounter) {
-        record.receiptNumber = fallbackReceiptNumber(id, record.confirmedAt);
-        delete record.receiptSequence;
-        transaction.set(ref, record);
-        return;
-      }
-      const counter = await transaction.get(counterRef);
-      const next = (counter.exists() ? Number(counter.data().currentSequence) || 0 : 0) + 1;
+      const next = (counter?.exists() ? Number(counter.data().currentSequence) || 0 : 0) + 1;
       record.receiptSequence = next;
       record.receiptNumber = `RD-${year}-${String(next).padStart(5, '0')}`;
       transaction.set(counterRef, { currentSequence: next, updatedAt: record.confirmedAt }, { merge: true });
       transaction.set(ref, record);
     });
 
-  try {
-    await commit(true, true);
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    if (code !== 'permission-denied') throw err;
-    // An account the counter rules do not cover (no active profile) still gets
-    // its confirmation — with a stable stand-in receipt number. The reference
-    // is still claimed.
-    try {
-      await commit(false, true);
-    } catch (retryErr) {
-      if ((retryErr as { code?: string })?.code !== 'permission-denied') throw retryErr;
-      // The reference-claim rules are not deployed either. The confirmation is
-      // filed as it was before, so the office keeps taking bank payments, but
-      // one reference can no longer be guaranteed to pay one declaration.
-      console.error(
-        '[BankConfirmations] A reference claim could not be written, so one reference may ' +
-          'acknowledge two payments. Deploy firestore.rules (bankReferenceClaims) to restore it.',
-        retryErr
-      );
-      await commit(false, false);
-    }
-  }
+  // Receipt numbering and reference reservation are required parts of confirmation.
+  // Permission failures must not quietly disable either guarantee.
+  await commit();
 
   await logAuditEvent(
     actor.uid,
@@ -244,10 +250,12 @@ export async function confirmPayment(
 /** Live list of confirmations, newest first. */
 export function subscribeToBankConfirmations(
   onData: (rows: BankConfirmation[]) => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  /** How many confirmations to read — the reports ask for a larger window. */
+  limitCount: number | null = null
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, BANK_CONFIRMATIONS_COLLECTION), orderBy('confirmedAt', 'desc'), limit(2000)),
+    query(collection(db, BANK_CONFIRMATIONS_COLLECTION), orderBy('confirmedAt', 'desc'), ...(limitCount === null ? [] : [limit(limitCount)])),
     (snap) => onData(snap.docs.map((d) => ({ ...(d.data() as BankConfirmation), id: d.id }))),
     (err) => {
       console.warn('[BankConfirmations] Listener error:', err);

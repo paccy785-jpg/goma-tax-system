@@ -268,12 +268,12 @@ export async function getExpenseRecords(): Promise<ExpenseRecord[]> {
 export function subscribeToRecurringExpenses(
   onData: (schedules: RecurringExpense[]) => void,
   onError?: (err: any) => void,
-  limitCount = 200
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, SCHEDULES_COLLECTION),
     orderBy('nextDueDate', 'asc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   const unsubscribe = onSnapshot(
     q,
@@ -298,12 +298,12 @@ export function subscribeToRecurringExpenses(
 export function subscribeToExpenseRecords(
   onData: (records: ExpenseRecord[]) => void,
   onError?: (err: any) => void,
-  limitCount = 500
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, RECORDS_COLLECTION),
     orderBy('dueDate', 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   const unsubscribe = onSnapshot(
     q,

@@ -396,7 +396,7 @@ fiscal events (business registrations, rate schedule updates, assessments, and c
         padding="none"
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="premium-table w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-surface2/60 border-b border-line text-faint font-bold uppercase tracking-[0.1em] text-[11px]">
                 <th className="py-3 px-4">Timestamp (Goma / UTC)</th>

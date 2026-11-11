@@ -633,7 +633,7 @@ export const PatenteRateScheduleView: React.FC<PatenteRateScheduleViewProps> = (
       {/* Rates Schedule Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="premium-table w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[12px]">
                 <th className="py-3 px-4">Activity Sector</th>

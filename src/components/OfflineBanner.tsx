@@ -18,8 +18,8 @@ export const OfflineBanner: React.FC = () => {
             <WifiOff className="w-4 h-4 text-ink" />
           </div>
           <div className="text-xs text-ink leading-relaxed font-sans">
-            <span className="font-bold">Offline Field Mode Active:</span> Local storage cache is operational. 
-            Receipts, taxpayer census, and payment collection will queue locally and automatically reconcile upon reconnection to Goma Revenue Cloud.
+            <span className="font-bold">Mode hors connexion :</span> Les données locales peuvent être incomplètes.
+            L’encaissement, la confirmation des paiements et les opérations de caisse nécessitent une connexion au serveur.
           </div>
         </div>
 

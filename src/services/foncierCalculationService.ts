@@ -109,7 +109,7 @@ export interface FoncierCalculation {
 
 /** (5) for one line, to the cent. */
 export function montantFoncier(measureValue: number, tauxUSD: number): number {
-  if (!Number.isFinite(measureValue) || !Number.isFinite(tauxUSD)) return 0;
+  if (!Number.isFinite(measureValue) || !Number.isFinite(tauxUSD)) return NaN;
   return roundMoney(measureValue * tauxUSD);
 }
 
@@ -209,12 +209,12 @@ export async function addFoncierCalculation(
 export function subscribeToFoncierCalculations(
   onData: (rows: FoncierCalculation[]) => void,
   onError?: (err: unknown) => void,
-  limitCount = 300
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, FONCIER_CALCULATIONS_COLLECTION),
     orderBy('createdAt', 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   return onSnapshot(
     q,

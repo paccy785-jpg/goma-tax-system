@@ -26,13 +26,15 @@ service cloud.firestore {
     function userDocActive() {
       return isSignedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != 'Suspended';
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'Active') != 'Suspended'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('active', true) != false;
     }
     // A profile doc that exists but declares no status at all is treated as active.
     function userDocNoStatus() {
       return isSignedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && !('status' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data);
+        && !('status' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('active', true) != false;
     }
 
     // ---- Authorisation by role ----------------------------------------
@@ -58,7 +60,8 @@ service cloud.firestore {
     // could lift their own suspension with one write to their own document.
     function callerSuspended() {
       return callerExists()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', null) == 'Suspended';
+        && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', null) == 'Suspended'
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('active', true) == false);
     }
     function isAdmin() {
       return callerExists() && !callerSuspended() && callerRole() == 'Admin';
@@ -444,6 +447,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // "III) Réservé à l'administration" of the IF / IRL declarations — filled
+    // in once by the accountant, before the payment can be confirmed; final.
+    match /declarationAdmin/{declId} {
+      allow read, create: if canUseLeases();
+      allow update, delete: if false;
+    }
+
     // Bank transfer references — one claim per reference, so a single transfer
     // can never be acknowledged against two declarations. The claim is taken in
     // the same transaction as the confirmation, which is what makes it
@@ -467,7 +477,10 @@ service cloud.firestore {
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ordonnateur'])
             || !('ordonnateur' in resource.data))
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['comptable'])
-            || !('comptable' in resource.data));
+            || !('comptable' in resource.data))
+        // The payment confirmation comes after the comptable's part; final.
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['confirmation'])
+            || (!('confirmation' in resource.data) && ('comptable' in resource.data)));
       allow delete: if false;
     }
 
@@ -475,6 +488,21 @@ service cloud.firestore {
     // one document per taxpayer + declaration type + exercice fiscal. A
     // document keeps the number it got the first time it was printed, so it
     // is write-once and never deleted.
+    // Permanent print number for each note de perception.
+    match /npDocuments/{noteId} {
+      allow read: if userDocActive();
+      allow create: if userDocActive()
+        && request.resource.data.noteId == noteId
+        && exists(/databases/$(database)/documents/notesPerception/$(noteId))
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^NP[0-9]{6,}$')
+        && request.resource.data.sequence is int
+        && request.resource.data.sequence > 0
+        && getAfter(/databases/$(database)/documents/counters/npDocuments).data.currentSequence == request.resource.data.sequence
+        && getAfter(/databases/$(database)/documents/counters/npDocuments).data.lastCode == request.resource.data.code;
+      allow update, delete: if false;
+    }
+
     match /cpfDocuments/{docId} {
       allow read: if userDocActive();
       allow create: if userDocActive()

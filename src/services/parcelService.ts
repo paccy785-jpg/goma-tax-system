@@ -36,12 +36,12 @@ export const PROPERTY_PARCELS_COLLECTION = 'propertyParcels';
 export function subscribeToParcels(
   onData: (parcels: PropertyParcel[]) => void,
   onError?: (err: unknown) => void,
-  limitCount = 100
+  limitCount: number | null = null
 ): Unsubscribe {
   const q = query(
     collection(db, PROPERTY_PARCELS_COLLECTION),
     orderBy(documentId(), 'desc'),
-    limit(limitCount)
+    ...(limitCount === null ? [] : [limit(limitCount)])
   );
   return onSnapshot(
     q,
