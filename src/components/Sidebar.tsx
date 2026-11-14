@@ -99,9 +99,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { userProfile, logout } = useAuth();
   const activePermissions = rolePermissions?.[userRole] || DEFAULT_ROLE_PERMISSIONS[userRole] || [];
+  // A portal that passes its own `items` (DGI) also sets their order; without
+  // it (DPRNK) the order is the one of ALL_NAV_ITEMS, unchanged.
   const visibleItems = ALL_NAV_ITEMS.filter(
     (item) => activePermissions.includes(item.id) && (!items || items.includes(item.id))
-  );
+  ).sort((a, b) => (items ? items.indexOf(a.id) - items.indexOf(b.id) : 0));
 
   // Department-owned modules render under their department group, not Workspace.
   // Reception + Announcement Board are pinned right above the Departments section.

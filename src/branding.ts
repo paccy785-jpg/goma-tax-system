@@ -79,21 +79,34 @@ export function portalBrand(portal: PortalId) {
 }
 
 /**
- * Office labels issued under the previous brand.
+ * Office labels issued under a previous brand.
  *
  * The renaming must not strand users already provisioned with the old office
  * string: a live record still reads "DGI — Goma Main Office", and rewriting
  * Firestore from the client would be both unverifiable and a silent edit of
  * someone's record. Instead those labels are normalized on read, so old and new
  * records display identically while history stays intact.
+ *
+ * Both portals' labels are listed: the DGI portal rendered (and saved) the
+ * DPRNK label on an officer whose office was empty, because the label was
+ * resolved against one brand whatever portal was showing it.
  */
-const LEGACY_OFFICE_LABELS: readonly string[] = ['DGI — Goma Main Office'];
+const LEGACY_OFFICE_LABELS: readonly string[] = ['DGI — Goma Main Office', 'DPRNK — Goma Main Office'];
 
-/** Office label for display: legacy labels resolve to the current brand. */
-export function officeLabel(value?: string | null): string {
+/**
+ * Office label for display: legacy labels resolve to the current brand.
+ *
+ * The brand is the ACTIVE portal's, so the DGI roster shows "DGI — Goma" and
+ * the DPRNK roster "DPRNK — Goma Main Office" — and the value a DGI officer
+ * saves is their own portal's label, not the other one's.
+ */
+export function officeLabel(
+  value?: string | null,
+  brand: { defaultOffice: string } = BRAND
+): string {
   const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return BRAND.defaultOffice;
-  if (LEGACY_OFFICE_LABELS.includes(raw)) return BRAND.defaultOffice;
+  if (!raw) return brand.defaultOffice;
+  if (LEGACY_OFFICE_LABELS.includes(raw)) return brand.defaultOffice;
   return raw;
 }
 

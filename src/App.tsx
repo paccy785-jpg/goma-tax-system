@@ -131,6 +131,16 @@ function MainPortal({ portal, onSwitchPortal }: MainPortalProps) {
           {brand.monogram}
         </div>
         <div className="text-xs text-muted font-sans">Checking access to this portal…</div>
+        {/* The answer needs the server. Offline, it never arrives — and a
+            spinner with no way out leaves the officer stuck on this screen.
+            Signing out is always possible. */}
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="mt-5 px-4 py-2 text-xs font-semibold text-ink bg-surface border border-line rounded-xl hover:bg-surface2 transition-premium"
+        >
+          Sign out
+        </button>
       </div>
     );
   }
@@ -333,7 +343,12 @@ export default function App() {
       else url.searchParams.delete('portal');
       window.location.assign(url.toString());
     } catch {
-      setPortal(next);
+      // The page could not be reloaded for the other portal. Switching the
+      // portal WITHOUT reloading would show the other portal's screens while
+      // `db` — chosen when the page loaded — still pointed at this portal's
+      // database: every DGI record written would land in the DPRNK register.
+      // Staying put is the only safe answer.
+      console.error('[App] Could not switch portal — the page was not reloaded, so the database did not change.');
     }
   };
 

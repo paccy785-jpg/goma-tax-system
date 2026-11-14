@@ -90,6 +90,25 @@ try {
 export const db = firestoreInstance;
 
 /**
+ * The database the T6 terminals print from. The "T6 Print Station" app
+ * listens to printStations / printJobs in the DPRNK database, so both portals
+ * file their print jobs there: on DPRNK this is `db` itself (unchanged); on
+ * the DGI portal it is the DPRNK database, so DGI receipts print on the same T6.
+ */
+export function printDb(): Firestore {
+  return dprnkDb();
+}
+
+/**
+ * The DPRNK database, from either portal: `db` itself on DPRNK, the other
+ * portal's database on DGI. Records the two portals share live there — the
+ * Nomenclatures des Impôts list and the T6 print queue.
+ */
+export function dprnkDb(): Firestore {
+  return ACTIVE_PORTAL === 'dprnk' ? db : otherPortalDb();
+}
+
+/**
  * The OTHER portal's database, opened on demand without offline cache. Used
  * only to tell, when an account has no profile here, whether it is an account
  * of the other portal (which must not be given access here automatically).

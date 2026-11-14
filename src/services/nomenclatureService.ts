@@ -9,7 +9,14 @@ import {
   runTransaction,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { dprnkDb } from '../firebase/config';
+
+/**
+ * The Nomenclatures des Impôts list is shared by the DPRNK and DGI portals: it
+ * always lives in the DPRNK database, so a tax added, corrected or deleted on
+ * either portal is the same on both.
+ */
+const nomDb = () => dprnkDb();
 import { UserRole } from '../types';
 import { logAuditEvent } from './dbService';
 import { formatMoney } from '../utils/money';
@@ -205,8 +212,8 @@ export async function addNomenclature(
   };
 
   // Claim the tax inside a transaction: the same tax is never entered twice.
-  const ref = doc(db, NOMENCLATURES_COLLECTION, id);
-  await runTransaction(db, async (tx) => {
+  const ref = doc(nomDb(), NOMENCLATURES_COLLECTION, id);
+  await runTransaction(nomDb(), async (tx) => {
     const taken = await tx.get(ref);
     if (taken.exists()) {
       throw new Error('Cet impôt figure déjà dans la nomenclature : même titre, même article budgétaire et même libellé.');
@@ -278,9 +285,9 @@ export async function updateNomenclature(
   // The title is optional: a cleared title is left off the saved entry.
   const data = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
 
-  const oldRef = doc(db, NOMENCLATURES_COLLECTION, row.id);
-  const newRef = doc(db, NOMENCLATURES_COLLECTION, newId);
-  await runTransaction(db, async (tx) => {
+  const oldRef = doc(nomDb(), NOMENCLATURES_COLLECTION, row.id);
+  const newRef = doc(nomDb(), NOMENCLATURES_COLLECTION, newId);
+  await runTransaction(nomDb(), async (tx) => {
     const current = await tx.get(oldRef);
     if (!current.exists()) throw new Error("Cette nomenclature n'existe plus.");
     if (newId !== row.id) {
@@ -315,7 +322,7 @@ export async function deleteNomenclature(
   row: NomenclatureImpot,
   actor: { uid: string; displayName: string; role: UserRole }
 ): Promise<void> {
-  await deleteDoc(doc(db, NOMENCLATURES_COLLECTION, row.id));
+  await deleteDoc(doc(nomDb(), NOMENCLATURES_COLLECTION, row.id));
   await logAuditEvent(
     actor.uid,
     actor.displayName,
@@ -337,7 +344,7 @@ export function subscribeToNomenclatures(
   onError?: (err: unknown) => void
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, NOMENCLATURES_COLLECTION), orderBy('createdAt', 'desc'), limit(2000)),
+    query(collection(nomDb(), NOMENCLATURES_COLLECTION), orderBy('createdAt', 'desc'), limit(2000)),
     (snap) => onData(snap.docs.map((d) => ({ ...(d.data() as NomenclatureImpot), id: d.id })).sort(byArticle)),
     (err) => {
       console.warn('[Nomenclatures] Listener error:', err);

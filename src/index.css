@@ -444,6 +444,40 @@
   background: oklch(55% 0.03 260);
 }
 
+/* A smooth, always-visible vertical scrollbar for a tall card body (the DGI
+   "Nouveau calcul" card): slim rounded thumb, soft track, smooth scrolling,
+   and the page behind does not scroll when the card reaches its end. */
+.scroll-y-smooth {
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .scroll-y-smooth {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(70% 0.02 260) oklch(95% 0.008 85);
+  }
+}
+.scroll-y-smooth::-webkit-scrollbar {
+  width: 10px;
+}
+.scroll-y-smooth::-webkit-scrollbar-track {
+  background: oklch(95% 0.008 85);
+  border-radius: 999px;
+  margin: 6px 0;
+}
+.scroll-y-smooth::-webkit-scrollbar-thumb {
+  background: oklch(70% 0.02 260);
+  border-radius: 999px;
+  border: 2px solid oklch(95% 0.008 85);
+  transition: background 0.2s;
+}
+.scroll-y-smooth::-webkit-scrollbar-thumb:hover {
+  background: oklch(55% 0.03 260);
+}
+
 /* Tax Payer Profile print: the standalone sheet (#pp-sheet) holds the file. */
 @media print {
   body.print-profile #pp-sheet thead {

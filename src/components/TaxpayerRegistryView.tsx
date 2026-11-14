@@ -76,7 +76,6 @@ import {
 } from './registry/registryBits';
 import { PropertyRegisterView } from './registry/PropertyRegisterView';
 import { RentalLeasesView } from './registry/RentalLeasesView';
-import { DgiCalculImpotView } from './dgi/DgiCalculImpotView';
 import { issueNextNif } from '../services/nifService';
 import { subscribeToAddressRegistry } from '../services/addressService';
 import { subscribeToParcelsByOwner } from '../services/parcelService';
@@ -125,6 +124,7 @@ type RollColumn =
   | 'mois'
   | 'annee'
   | 'name'
+  | 'impot'
   | 'sigle'
   | 'idnat'
   | 'ville'
@@ -141,14 +141,15 @@ const DPRNK_ROLL: RollColumn[] = ['nif', 'name', 'sigle', 'idnat', 'ville', 'com
 /**
  * The DGI roll's columns: the fields of the DGI enrolment card, in its order —
  * Service, Numéro de dépôt, Salaires du mois de, Année, Noms ou dénomination
- * sociale, Sigle, ID Nationale, Ville, Commune, Quartier, Avenue, Téléphone,
- * E-mail.
+ * sociale, Numéro impôt, Sigle, ID Nationale, Ville, Commune, Quartier, Avenue,
+ * Téléphone, E-mail.
  */
-const DGI_ROLL: RollColumn[] = ['service', 'depot', 'mois', 'annee', 'name', 'sigle', 'idnat', 'ville', 'commune', 'quartier', 'avenue', 'phone', 'email'];
+const DGI_ROLL: RollColumn[] = ['service', 'depot', 'mois', 'annee', 'name', 'impot', 'sigle', 'idnat', 'ville', 'commune', 'quartier', 'avenue', 'phone', 'email'];
 
 type SortKey =
   | 'service'
   | 'depot'
+  | 'impot'
   | 'mois'
   | 'annee'
   | 'name'
@@ -172,6 +173,8 @@ interface FormState {
   service: string;
   /** Numéro de dépôt — DGI portal card only. */
   numeroDepot: string;
+  /** Numéro impôt — DGI portal card only. */
+  numeroImpot: string;
   /** Salaires du mois de — '1' (janvier) to '12' (décembre), '' if none. DGI portal card only. */
   salairesMois: string;
   /** Année — '2020' to '2035', '' if none. DGI portal card only. */
@@ -210,6 +213,7 @@ interface FormState {
 const emptyForm = (): FormState => ({
   service: '',
   numeroDepot: '',
+  numeroImpot: '',
   salairesMois: '',
   annee: '',
   businessName: '',
@@ -292,6 +296,8 @@ const ROLL_COLUMNS = {
   annee: 'w-[5%]',
   nif: 'w-[8%]',
   taxpayer: 'w-[15%]',
+  // DGI roll only — Numéro impôt, right after the name.
+  impot: 'w-[7%]',
   sigle: 'w-[6%]',
   idnat: 'w-[10%]',
   ville: 'w-[6%]',
@@ -308,9 +314,9 @@ const ROLL_COLUMNS = {
  * Subtabs inside the Taxpayer Registry: the contributor roll, the cadastral
  * property declaration, and the tenancies on the properties given for rent.
  */
-export type RegistrySubTab = 'roll' | 'properties' | 'rentals' | 'calcul';
+export type RegistrySubTab = 'roll' | 'properties' | 'rentals';
 
-/** The DPRNK portal's subtabs (Calcul d'impôt is a DGI portal subtab). */
+/** The DPRNK portal's subtabs. */
 const DPRNK_SUBTABS: RegistrySubTab[] = ['roll', 'properties', 'rentals'];
 
 const REGISTRY_SUBTABS: { id: RegistrySubTab; label: string; hint: string }[] = [
@@ -321,7 +327,6 @@ const REGISTRY_SUBTABS: { id: RegistrySubTab; label: string; hint: string }[] = 
     label: 'Précision sur les propriétés données en location',
     hint: 'Tenancies, rents and the IRL declaration they evidence',
   },
-  { id: 'calcul', label: 'Calcul d’impôt', hint: 'Tax calculation' },
 ];
 
 /** Segmented subtab control — the sliding accent pill marks the active view. */
@@ -593,6 +598,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
           const haystack = [
             t.service,
             t.numeroDepot,
+            t.numeroImpot,
             t.businessName,
             t.sigle,
             t.ownerFullName,
@@ -621,6 +627,8 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
           return dir * (a.taxpayer.service || '').localeCompare(b.taxpayer.service || '');
         case 'depot':
           return dir * (a.taxpayer.numeroDepot || '').localeCompare(b.taxpayer.numeroDepot || '', undefined, { numeric: true });
+        case 'impot':
+          return dir * (a.taxpayer.numeroImpot || '').localeCompare(b.taxpayer.numeroImpot || '', undefined, { numeric: true });
         case 'mois':
           return dir * ((a.taxpayer.salairesMois || 0) - (b.taxpayer.salairesMois || 0));
         case 'annee':
@@ -694,6 +702,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
     setForm({
       service: taxpayer.service || '',
       numeroDepot: taxpayer.numeroDepot || '',
+      numeroImpot: taxpayer.numeroImpot || '',
       salairesMois: taxpayer.salairesMois ? String(taxpayer.salairesMois) : '',
       annee: taxpayer.annee ? String(taxpayer.annee) : '',
       businessName: taxpayer.businessName || '',
@@ -790,6 +799,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
         id: newId,
         service: form.service.trim() || undefined,
         numeroDepot: form.numeroDepot.trim() || undefined,
+        numeroImpot: form.numeroImpot.trim() || undefined,
         salairesMois: form.salairesMois ? Number(form.salairesMois) : undefined,
         annee: form.annee ? Number(form.annee) : undefined,
         businessName: form.businessName.trim(),
@@ -849,6 +859,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
       const updates: Partial<Business> = {
         service: form.service.trim() || undefined,
         numeroDepot: form.numeroDepot.trim() || undefined,
+        numeroImpot: form.numeroImpot.trim() || undefined,
         salairesMois: form.salairesMois ? Number(form.salairesMois) : undefined,
         annee: form.annee ? Number(form.annee) : undefined,
         businessName: form.businessName.trim(),
@@ -984,14 +995,8 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
         />
       )}
 
-      {/* ===== CALCUL D'IMPÔT (DGI portal) ===== */}
-      {subTab === 'calcul' ? (
-        <>
-          <SubTabBar active={subTab} onChange={setSubTab} tabs={visibleSubTabs} />
-          <DgiCalculImpotView canModify={canModify} />
-        </>
-      ) : /* ===== RENTED PROPERTIES ===== */
-      subTab === 'rentals' ? (
+      {/* ===== RENTED PROPERTIES ===== */}
+      {subTab === 'rentals' ? (
         <>
           <SubTabBar active={subTab} onChange={setSubTab} tabs={visibleSubTabs} />
           <RentalLeasesView userRole={userRole} />
@@ -1103,7 +1108,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
           <div className="w-full overflow-x-auto">
             {/* The DGI roll has one more column: it is laid out wider (it scrolls sideways). */}
             <table
-              className={`premium-table w-full ${rollColumns === 'dgi' ? 'min-w-[1800px]' : 'min-w-[1560px]'} table-fixed text-left border-collapse font-sans`}
+              className={`premium-table w-full ${rollColumns === 'dgi' ? 'min-w-[1930px]' : 'min-w-[1560px]'} table-fixed text-left border-collapse font-sans`}
             >
               <thead>
                 <tr className="border-b border-line bg-surface2/50">
@@ -1113,6 +1118,7 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
                   {showCol('mois') && <Th column="mois" label="Salaires du mois de" widthClass={ROLL_COLUMNS.mois} />}
                   {showCol('annee') && <Th column="annee" label="Année" widthClass={ROLL_COLUMNS.annee} />}
                   <Th column="name" label="Noms ou dénomination sociale" widthClass={ROLL_COLUMNS.taxpayer} />
+                  {showCol('impot') && <Th column="impot" label="Numéro impôt" widthClass={ROLL_COLUMNS.impot} />}
                   <Th column="sigle" label="Sigle" widthClass={ROLL_COLUMNS.sigle} />
                   <Th column="idnat" label="Numéro d'identification nationale" widthClass={ROLL_COLUMNS.idnat} />
                   <Th column="ville" label="Ville" widthClass={ROLL_COLUMNS.ville} />
@@ -1199,6 +1205,14 @@ export const TaxpayerRegistryView: React.FC<TaxpayerRegistryViewProps> = ({
                           </div>
                         </button>
                       </td>
+
+                      {showCol('impot') && (
+                        <td className={`${ROLL_COLUMNS.impot} px-3 py-4 align-middle`}>
+                          <div className="font-mono text-xs text-ink tabular-nums truncate" title={t.numeroImpot || undefined}>
+                            {t.numeroImpot || '—'}
+                          </div>
+                        </td>
+                      )}
 
                       <td className={`${ROLL_COLUMNS.sigle} px-3 py-4 align-middle`}>
                         <div className="text-xs font-semibold text-ink truncate" title={t.sigle || undefined}>
@@ -2081,6 +2095,19 @@ const TaxpayerFormModal: React.FC<FormModalProps> = ({
                   className={inputClass}
                 />
               </Field>
+
+              {/* Numéro impôt — DGI portal card only, right below the name. */}
+              {showDepotFields && (
+                <Field label="Numéro impôt" span>
+                  <input
+                    id="enroll-numero-impot"
+                    type="text"
+                    value={form.numeroImpot}
+                    onChange={(e) => patch({ numeroImpot: e.target.value })}
+                    className={inputClass}
+                  />
+                </Field>
+              )}
 
               <Field label="Sigle">
                 <input

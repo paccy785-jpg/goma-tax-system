@@ -7,7 +7,7 @@ import {
   PropertyTransfer,
   subscribeToTransfers,
 } from '../services/transferService';
-import { Button, EmptyState, Panel, TableSkeleton } from './ui';
+import { Button, EmptyState, MetricStrip, Panel, TableSkeleton } from './ui';
 import { TransferModal } from './transfer/TransferModal';
 import { RemoveTenantModal } from './transfer/RemoveTenantModal';
 
@@ -99,6 +99,16 @@ export const TransferView: React.FC<{ userRole: UserRole }> = ({ userRole }) => 
     });
   }, [transfers, q]);
 
+  /**
+   * Distinct properties behind the transfer history. One property can be
+   * transferred more than once, so this is deliberately not the row count: it
+   * answers "how many properties have changed hands", not "how many acts".
+   */
+  const transferredProperties = useMemo(
+    () => new Set(transfers.map((t) => t.parcelId).filter(Boolean)).size,
+    [transfers]
+  );
+
   const party = (p: { name: string; nif?: string }) => (
     <>
       <div className="text-xs font-semibold text-ink truncate" title={p.name}>
@@ -153,6 +163,26 @@ export const TransferView: React.FC<{ userRole: UserRole }> = ({ userRole }) => 
           </div>
         )}
       </div>
+
+      {/* How many property transfers the register holds. */}
+      <MetricStrip
+        columns={1}
+        items={[
+          {
+            label: 'Transferts enregistrés',
+            // "—" while the history loads: a 0 would read as "no transfer was
+            // ever recorded", which is not yet known.
+            value: loading ? '—' : transfers.length.toString(),
+            trend:
+              loading
+                ? 'Chargement de l’historique…'
+                : `${transferredProperties} propriété${transferredProperties === 1 ? '' : 's'} concernée${transferredProperties === 1 ? '' : 's'}`,
+            trendType: 'muted',
+            subline: 'Mutations de propriété consignées au registre',
+            icon: <ArrowLeftRight className="w-4 h-4 text-accent" />,
+          },
+        ]}
+      />
 
       <Panel
         title="Transferts de propriété"

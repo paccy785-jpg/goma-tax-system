@@ -15,7 +15,12 @@ export const TaxpayerSearch: React.FC<{
   error?: string;
   disabled?: boolean;
   autoFocus?: boolean;
-}> = ({ id, label, hint, taxpayers, value, onChange, excludeId, error, disabled, autoFocus }) => {
+  /**
+   * Open the list of registered taxpayers as soon as the field is focused,
+   * before anything is typed (typing then narrows it). Off by default.
+   */
+  showAllOnFocus?: boolean;
+}> = ({ id, label, hint, taxpayers, value, onChange, excludeId, error, disabled, autoFocus, showAllOnFocus = false }) => {
   const [query, setQuery] = useState(value?.businessName || '');
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -37,8 +42,8 @@ export const TaxpayerSearch: React.FC<{
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q || value) return [];
-    const tokens = q.split(/\s+/);
+    if (value || (!q && !showAllOnFocus)) return [];
+    const tokens = q ? q.split(/\s+/) : [];
     return taxpayers
       .filter((b) => b.id !== excludeId)
       .filter((b) => {
@@ -47,9 +52,10 @@ export const TaxpayerSearch: React.FC<{
           .toLowerCase();
         return tokens.every((t) => hay.includes(t));
       })
-      .slice(0, 30);
-  }, [query, value, taxpayers, excludeId]);
-  const showList = open && !value && query.trim().length > 0;
+      .sort((a, b) => (q ? 0 : (a.businessName || '').localeCompare(b.businessName || '', 'fr')))
+      .slice(0, q ? 30 : 200);
+  }, [query, value, taxpayers, excludeId, showAllOnFocus]);
+  const showList = open && !value && (showAllOnFocus || query.trim().length > 0);
   const details = (b: Business) =>
     [b.nif ? `NIF ${b.nif}` : '', [b.physicalAddress, b.quartier, b.commune].filter(Boolean).join(', ')]
       .filter(Boolean)
@@ -79,6 +85,7 @@ export const TaxpayerSearch: React.FC<{
           disabled={disabled}
           value={query}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
           onChange={(e) => {
             setQuery(e.target.value);
             setHi(0);
@@ -120,7 +127,9 @@ export const TaxpayerSearch: React.FC<{
             role="listbox"
             className="absolute z-30 left-0 right-0 mt-1.5 max-h-64 overflow-y-auto rounded-[12px] border border-line bg-surface shadow-2xl py-1.5"
           >
-            {matches.length === 0 ? (
+            {matches.length === 0 && !query.trim() ? (
+              <li className="px-3.5 py-2.5 text-[12px] text-muted">Aucun contribuable enregistré.</li>
+            ) : matches.length === 0 ? (
               <li className="px-3.5 py-2.5 text-[12px] text-muted">
                 Aucun contribuable ne correspond à{' '}
                 <span className="font-semibold text-ink">« {query.trim()} »</span>.

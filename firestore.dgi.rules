@@ -143,7 +143,15 @@ service cloud.firestore {
       // document to role: 'Admin' and skip the approval queue entirely.
       allow update: if isSupervisorOrAdmin()
         && (userId != request.auth.uid
-            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+        // A role may only be granted by an Administrator. The rules cannot tell
+        // an approved promotion from an arbitrary one — the approval request's
+        // document id is not derived from its target — so this privilege is
+        // closed to Supervisors outright. The client already refuses it
+        // (updateSystemUserDirect whitelists the non-Admin roles); here the
+        // refusal is the database's, not the interface's.
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+            || isAdmin());
     }
 
     // The DGI portal's first administrator: written once, in the same
@@ -463,6 +471,36 @@ service cloud.firestore {
       allow read: if canUseLeases();
       // The taux is fixed at 15 %: a calculation saved at any other rate is refused.
       allow create: if canUseLeases() && request.resource.data.tauxPct == 15;
+      allow update, delete: if false;
+    }
+
+    // Calculs d'impôt of the DGI portal (Registration → Calcul d'impôt) —
+    // final once saved: read and create only.
+    match /dgiCalculsImpot/{calcId} {
+      allow read: if canUseLeases();
+      // The author is the caller's own account: a calculation filed in a
+      // colleague's name would put their name on an assessment they never
+      // made. The role is the one the card allows (Admin or Cashier) — the
+      // interface is not the only thing standing between a Supervisor and the
+      // tax register.
+      allow create: if canUseLeases()
+        && callerRole() in ['Admin', 'Cashier']
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Declarations filled in from the Accountant tab ("Fill in declaration") —
+    // final once saved: read and create only.
+    match /dgiDeclarations/{declId} {
+      allow read: if canUseLeases();
+      // Filing a payment is a privileged act: it produces an official receipt
+      // and feeds the collected totals. The read-only Auditor may look at the
+      // tab, not file on it — the same rule the DPRNK Accountant applies. The
+      // author is the caller's own account, so a receipt cannot be filed in a
+      // colleague's name.
+      allow create: if canUseLeases()
+        && callerRole() in ['Admin', 'Supervisor', 'Cashier']
+        && request.resource.data.createdByUid == request.auth.uid;
       allow update, delete: if false;
     }
 

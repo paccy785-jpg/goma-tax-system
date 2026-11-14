@@ -490,16 +490,11 @@ export async function addPaiementComptable(
   return saved;
 }
 
-/**
- * The amount of a recorded payment. Payments saved before the payment took the
- * note's taxed amount carry it under their earlier field name.
- */
+/** The amount of a recorded payment — the note's taxed amount, read from the note itself. */
 export const montantPaiementUSD = (c: ComptableSection): number =>
-  typeof c.montantUSD === 'number' ? c.montantUSD :
-    typeof (c as unknown as Record<string, unknown>).montantOrdonneUSD === 'number'
-      ? (c as unknown as Record<string, number>).montantOrdonneUSD : NaN;
+  typeof c.montantUSD === 'number' ? c.montantUSD : NaN;
 export const montantPaiementEnLettres = (c: ComptableSection): string =>
-  c.montantEnLettres || String((c as unknown as Record<string, unknown>)['montantOrdonneEnLettres'] || '') || montantEnLettres(montantPaiementUSD(c));
+  c.montantEnLettres || montantEnLettres(montantPaiementUSD(c));
 
 /** Live list of notes, newest first. */
 export function subscribeToNotesPerception(

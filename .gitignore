@@ -15,6 +15,11 @@ _firestore-backup-*/
 .workbuddy-ai/
 reports/
 
+# Local copy of the previously deployed Firestore rules, kept for a rollback.
+# It is an operational snapshot, not source — the deployed rules live in
+# firestore.rules / firestore.dgi.rules.
+.rules-backup/
+
 # Android / Gradle (print station)
 t6-print-station/.gradle/
 t6-print-station/build/

@@ -62,7 +62,8 @@ import { officeLabel, portalBrand } from '../branding';
 import { ACTIVE_PORTAL } from '../firebase/config';
 
 /** Default office of a new account on this portal. */
-const DEFAULT_OFFICE = portalBrand(ACTIVE_PORTAL).defaultOffice;
+const PORTAL_BRAND = portalBrand(ACTIVE_PORTAL);
+const DEFAULT_OFFICE = PORTAL_BRAND.defaultOffice;
 
 const ROLE_COLORS: Record<UserRole, { badge: string; text: string; bg: string; border: string }> = {
   Admin: {
@@ -307,7 +308,7 @@ export const UsersView: React.FC = () => {
     setEditRole(user.role);
     setEditStatus(normalizeUserStatus(user));
     setEditPhone(user.phone || '');
-    setEditOffice(officeLabel(user.assignedOffice));
+    setEditOffice(officeLabel(user.assignedOffice, PORTAL_BRAND));
     setEditJustification('');
     setIsEditModalOpen(true);
   };
@@ -745,7 +746,7 @@ export const UsersView: React.FC = () => {
                           <td className="py-3.5 px-4 text-slate-600">
                             <div className="flex items-center gap-1.5">
                               <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span className="truncate max-w-[200px]">{officeLabel(u.assignedOffice)}</span>
+                              <span className="truncate max-w-[200px]">{officeLabel(u.assignedOffice, PORTAL_BRAND)}</span>
                             </div>
                           </td>
 

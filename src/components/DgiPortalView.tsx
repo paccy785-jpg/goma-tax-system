@@ -11,6 +11,14 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { RegistrySubTab, TaxpayerRegistryView } from './TaxpayerRegistryView';
 import { SettingsTab, SettingsView } from './SettingsView';
 import { UsersView } from './UsersView';
+import { ReceptionView } from './ReceptionView';
+import { AnnouncementBoardView } from './AnnouncementBoardView';
+import { PayrollView } from './PayrollView';
+import { ExpensesView } from './ExpensesView';
+import { DgiDashboardView } from './dgi/DgiDashboardView';
+import { DgiAccountantView } from './dgi/DgiAccountantView';
+import { DgiDeclarationsView } from './dgi/DgiDeclarationsView';
+import { DgiTaxpayerProfileView } from './dgi/DgiTaxpayerProfileView';
 import { ensureAddressRegistrySeeded } from '../services/addressService';
 
 interface DgiPortalViewProps {
@@ -23,18 +31,44 @@ interface DgiPortalViewProps {
  * the DPRNK tab of the same id, and follows the same role permissions — but on
  * the DGI portal's own database (see firebase/config): its own taxpayers, its
  * own user accounts, its own address hierarchy.
+ * - reception:  Reception — the same module as on DPRNK (visitor queue and
+ *               scheduled meetings), pinned above Workspace as on DPRNK, on the
+ *               DGI database's own receptionEntries / scheduleEvents
+ * - announcements: Announcement Board — the same module as on DPRNK (posts,
+ *               issue threads, memos and the board schedule), pinned under
+ *               Reception as on DPRNK, on the DGI database's own announcements
+ *               / scheduleEvents
+ * - payroll:    Payroll & Advances — the same module as on DPRNK, under the
+ *               HR department group, with the DGI portal's own workspace
+ * - expenses:   Recurring Expenses — the same module as on DPRNK, under the
+ *               Finance department group, on the DGI database's own
+ *               recurringExpenses / expenseRecords
+ * - dashboard:  Dashboard (Tableau de bord) — the DPRNK layout on DGI data;
+ *               first in Workspace and the landing tab, as on DPRNK
  * - businesses: Registration (Enregistrement)
+ * - declarations: Declarations — between Registration and Accountant; its
+ *               subtab Calcul d'impôt (not the DPRNK Declarations module)
+ * - taxpayer-profile: Tax Payer Profile — right below Accountant: a taxpayer
+ *               search field (not the DPRNK Tax Payer Profile module)
+ * - bank-agent: Accountant — right below Registration: "Fill in declaration"
+ *               and the saved declarations (not the DPRNK Accountant module)
  * - settings:   Settings — the address hierarchy (Ville › Commune › Quartier ›
  *               Avenue) the enrolment card's address dropdowns read
  * - users:      Users — the DGI portal's own accounts
  */
-const DGI_TABS: NavigationItem[] = ['businesses', 'settings', 'users'];
+const DGI_TABS: NavigationItem[] = ['reception', 'announcements', 'dashboard', 'businesses', 'declarations', 'bank-agent', 'taxpayer-profile', 'payroll', 'expenses', 'settings', 'users'];
 
-/** Settings subtabs in the DGI portal: the address hierarchy only. */
-const DGI_SETTINGS_TABS: SettingsTab[] = ['adresses'];
+/**
+ * Settings subtabs in the DGI portal: the address hierarchy, and the
+ * Nomenclatures des Impôts — the one list shared with the DPRNK portal.
+ */
+const DGI_SETTINGS_TABS: SettingsTab[] = ['adresses', 'nomenclatures'];
 
-/** Registration subtabs in the DGI portal: Identification du redevable and Calcul d'impôt. */
-const DGI_REGISTRATION_SUBTABS: RegistrySubTab[] = ['roll', 'calcul'];
+/**
+ * Registration subtabs in the DGI portal: Identification du redevable only —
+ * Calcul d'impôt is a subtab of the Declarations tab.
+ */
+const DGI_REGISTRATION_SUBTABS: RegistrySubTab[] = ['roll'];
 
 /**
  * Post-login shell for the DGI portal: the same layout as the DPRNK portal —
@@ -42,8 +76,8 @@ const DGI_REGISTRATION_SUBTABS: RegistrySubTab[] = ['roll', 'calcul'];
  * A role with none of the DGI tabs sees the "Module under construction" screen.
  */
 export const DgiPortalView: React.FC<DgiPortalViewProps> = ({ onSwitchPortal, rolePermissions }) => {
-  const { userRole } = useAuth();
-  const [currentView, setCurrentView] = useState<NavigationItem>(DGI_TABS[0]);
+  const { userRole, currentUser, userProfile } = useAuth();
+  const [currentView, setCurrentView] = useState<NavigationItem>('dashboard') /* the Dashboard is the landing tab, as on DPRNK */;
   const [isMobileOpen, setIsMobileOpen] = useState<boolean>(false);
 
   // The DGI database starts with no address hierarchy, which would leave the
@@ -104,11 +138,45 @@ export const DgiPortalView: React.FC<DgiPortalViewProps> = ({ onSwitchPortal, ro
                 addressFilters={false}
               />
             )}
+            {/* Dashboard — the DPRNK layout, on the DGI portal's own records. */}
+            {effectiveView === 'dashboard' && (
+              <DgiDashboardView userName={userProfile?.displayName || ''} onNavigate={(view) => setCurrentView(view)} />
+            )}
+            {/* Payroll & Advances and Recurring Expenses — the same modules as on DPRNK. */}
+            {effectiveView === 'payroll' && <PayrollView userRole={userRole} />}
+            {effectiveView === 'expenses' && <ExpensesView userRole={userRole} />}
+            {/* Announcement Board — the same module as on DPRNK. */}
+            {effectiveView === 'announcements' && <AnnouncementBoardView userRole={userRole} />}
+            {/* Reception — the same module as on DPRNK. */}
+            {effectiveView === 'reception' && <ReceptionView userRole={userRole} />}
+            {/* Declarations — the Calcul d'impôt subtab. */}
+            {effectiveView === 'declarations' && (
+              <DgiDeclarationsView
+                userRole={userRole}
+                actor={{
+                  uid: currentUser?.uid || 'anonymous',
+                  displayName: userProfile?.displayName || 'Tax Officer',
+                  role: userRole,
+                }}
+              />
+            )}
+            {/* Tax Payer Profile — the taxpayer search field. */}
+            {effectiveView === 'taxpayer-profile' && <DgiTaxpayerProfileView />}
+            {/* Accountant — "Fill in declaration" and the saved declarations. */}
+            {effectiveView === 'bank-agent' && (
+              <DgiAccountantView
+                actor={{
+                  uid: currentUser?.uid || 'anonymous',
+                  displayName: userProfile?.displayName || 'Tax Officer',
+                  role: userRole,
+                }}
+              />
+            )}
             {effectiveView === 'settings' && (
               <SettingsView
                 tabs={DGI_SETTINGS_TABS}
                 title="Settings"
-                description="The DGI portal's own address hierarchy — the Ville, Commune, Quartier and Avenue choices of the enrolment card."
+                description="The DGI portal's own address hierarchy — the Ville, Commune, Quartier and Avenue choices of the enrolment card — and the Nomenclatures des Impôts, shared with the DPRNK portal."
               />
             )}
             {effectiveView === 'users' && <UsersView />}

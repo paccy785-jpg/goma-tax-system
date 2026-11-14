@@ -30,18 +30,42 @@ export type PortalAccess = 'granted' | 'checking' | 'none';
 /** The default office of a new profile on this portal. */
 const PORTAL_DEFAULT_OFFICE = portalBrand(ACTIVE_PORTAL).defaultOffice;
 
-/** True when the account has a profile in the OTHER portal's database. */
-async function isOtherPortalAccount(uid: string): Promise<boolean> {
+/**
+ * What the other portal's database says about an account.
+ *
+ * 'other'     — the account has a profile there.
+ * 'not-other' — it does not.
+ * 'unknown'   — the other database could not be reached, so nothing is known.
+ */
+type OtherPortalProbe = 'other' | 'not-other' | 'unknown';
+
+/**
+ * Ask the other portal's database whether an account belongs to it.
+ *
+ * A failure is reported as 'unknown' and never as 'not-other': the probe used
+ * to return false on a timeout, and the DPRNK branch read that as "this is a
+ * brand-new account" and issued it a DPRNK Cashier profile — handing a DGI
+ * officer the entire DPRNK revenue register and ledger because a cross-database
+ * read was slow. The rules now refuse such a profile on their own
+ * (isDgiAccount in firestore.rules); this probe decides only what the officer
+ * is told.
+ */
+async function probeOtherPortalAccount(uid: string): Promise<OtherPortalProbe> {
   try {
     const snap = await Promise.race([
       getDoc(doc(otherPortalDb(), 'users', uid)),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
     ]);
-    return !!snap && snap.exists();
-  } catch {
-    // The other database unreachable or not set up: nothing says the account
-    // belongs to it.
-    return false;
+    // A timeout tells us nothing: the account may well have a profile there.
+    if (!snap) return 'unknown';
+    return snap.exists() ? 'other' : 'not-other';
+  } catch (err) {
+    // The other database does not exist at all (nobody can be an account of a
+    // portal that was never created) — that is a definite "not other". Any
+    // other failure is a question we cannot answer.
+    const code = (err as { code?: string })?.code;
+    if (code === 'not-found') return 'not-other';
+    return 'unknown';
   }
 }
 
@@ -239,9 +263,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
               // DPRNK: an account that belongs to the DGI portal is not given a
               // DPRNK profile automatically — the two portals' accounts are separate.
-              isOtherPortalAccount(user.uid).then((otherPortal) => {
+              probeOtherPortalAccount(user.uid).then((probe) => {
                 if (!isCurrent()) return;
-                if (otherPortal) {
+                if (probe === 'unknown') {
+                  // The other portal could not be reached, so we cannot tell
+                  // whether this account belongs to it. Guessing "no" would
+                  // issue a DPRNK profile to a DGI officer — and with it the
+                  // whole DPRNK revenue register. Refuse instead: the officer
+                  // signs in again. (The rules refuse the profile write
+                  // themselves — isDgiAccount in firestore.rules — so this is
+                  // about what the officer is told, not about the control.)
+                  console.warn(
+                    '[Auth] The other portal could not be reached — access refused rather than granted.'
+                  );
+                  refuse();
+                  return;
+                }
+                if (probe === 'other') {
                   refuse();
                   return;
                 }
@@ -409,7 +447,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'User',
         newProfile.uid,
         `New tax officer registered as Cashier at ${office}.`
-      );
+      ).catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -438,7 +476,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         'User',
         profile.uid,
         `Google identity verified for officer station.`
-      );
+      ).catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -541,6 +579,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdAt: now,
       updatedAt: now,
     };
+    // An account that already has a profile here is not asking for access —
+    // it is already an officer of this portal. Filing the request anyway
+    // REPLACED the whole document (setDoc without merge), which silently
+    // stripped the role of an administrator and suspended the account: with
+    // the only Admin gone, nobody could undo it from the app.
+    const existing = await getDoc(doc(db, 'users', user.uid));
+    if (existing.exists()) {
+      const data = existing.data() as UserProfile;
+      throw new Error(
+        'Ce compte a déjà un profil sur ce portail — un administrateur doit le réactiver.'
+      );
+    }
     await setDoc(doc(db, 'users', user.uid), request);
   };
 

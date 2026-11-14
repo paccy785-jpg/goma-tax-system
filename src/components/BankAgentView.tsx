@@ -207,6 +207,16 @@ export const BankAgentView: React.FC<{
   const pending = rows.filter((r) => r.state === 'pending');
   /** Pending declarations the accountant has not filled in yet. */
   const toFill = useMemo(() => pending.filter((r) => !r.filled).map((r) => r.d), [pending]);
+  /**
+   * Notes de perception awaiting the accountant's part: the service taxateur and
+   * the ordonnateur have both filled theirs, and the bureau comptable has not yet
+   * recorded the payment. Same rule the Comptable list uses to mark a row
+   * "En attente de paiement".
+   */
+  const awaitingComptable = useMemo(
+    () => notes.filter((n) => !!n.taxateur && !!n.ordonnateur && !n.comptable).length,
+    [notes]
+  );
   const paid = rows.filter((r) => r.state === 'paid');
   const sum = (list: typeof rows) =>
     Math.round(list.reduce((s, r) => s + (r.confirmation?.amountUSD ?? r.d.amountUSD), 0) * 100) / 100;
@@ -246,6 +256,22 @@ export const BankAgentView: React.FC<{
         <PaymentsView userRole={userRole} />
       ) : subTab === 'notes' ? (
         <>
+          {/* How many notes de perception are waiting for the accountant's part:
+              taxateur and ordonnateur filled in, payment not yet recorded. */}
+          <MetricStrip
+            columns={1}
+            items={[
+              {
+                label: 'Attente du comptable',
+                value: awaitingComptable,
+                trend: awaitingComptable > 0 ? 'notes de perception à traiter' : 'À jour',
+                trendType: awaitingComptable > 0 ? 'warn' : 'sage',
+                subline: 'Notes de perception à enregistrer au bureau comptable',
+                icon: <Clock className="w-4 h-4 text-accent" />,
+              },
+            ]}
+          />
+
           {canConfirm && (
             <div className="mb-4 flex justify-end">
               <Button variant="primary" size="md" icon={<Landmark className="w-4 h-4" />} onClick={() => setPayOpen(true)}>

@@ -468,6 +468,8 @@ export interface Business {
   service?: string;
   /** Numéro de dépôt — DGI portal enrolment card. */
   numeroDepot?: string;
+  /** Numéro impôt — DGI portal enrolment card (below Noms ou dénomination sociale). */
+  numeroImpot?: string;
   /** Salaires du mois de — month 1 (janvier) to 12 (décembre); DGI portal enrolment card. */
   salairesMois?: number;
   /** Année — 2020 to 2035; DGI portal enrolment card. */

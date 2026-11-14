@@ -82,6 +82,35 @@ service cloud.firestore {
     function canUseApp() {
       return userDocMissing() || userDocNoStatus() || userDocActive();
     }
+    // An officer of the DGI portal. The two portals have separate databases
+    // and separate accounts, so a DGI officer has a profile in the DGI
+    // database (goma-tax-system-dgi — the same id the client uses, see
+    // src/firebase/config.ts) and none in this one.
+    //
+    // The resources the two portals SHARE live in this database: the T6 print
+    // queue and the Nomenclatures des Impôts list. Without this, a DGI
+    // officer could reach neither: the station list came back empty and the
+    // print button stayed disabled — so a DGI receipt could never be printed
+    // on the office's T6 — and the shared nomenclature read as an empty list,
+    // presented as "no tax in the nomenclature" rather than as a refusal.
+    function isDgiOfficer() {
+      return isSignedIn()
+        && exists(/databases/goma-tax-system-dgi/documents/users/$(request.auth.uid))
+        && get(/databases/goma-tax-system-dgi/documents/users/$(request.auth.uid)).data.get('status', 'Active') != 'Suspended'
+        && get(/databases/goma-tax-system-dgi/documents/users/$(request.auth.uid)).data.get('active', true) != false;
+    }
+    // An account of the DGI portal. The two portals keep separate accounts:
+    // an identity signed in on one is not an officer of the other. The check
+    // reads the DGI database directly, so it cannot be turned into access by
+    // a network failure — which is what a client-side probe could do.
+    //
+    // The DGI database must exist in the project for this rule to evaluate:
+    // it is declared in firebase.json (goma-tax-system-dgi) and initialised
+    // by the client (src/firebase/config.ts).
+    function isDgiAccount() {
+      return isSignedIn()
+        && exists(/databases/goma-tax-system-dgi/documents/users/$(request.auth.uid));
+    }
     // True when the update touches no field outside the given allow-list.
     function onlyChanges(allowed) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
@@ -106,10 +135,17 @@ service cloud.firestore {
       allow read: if canReadRoster() || (isSignedIn() && userId == request.auth.uid);
       // Staff may be added by a Supervisor/Admin, but never directly as an
       // Admin: that is the maker-checker promotion path's job.
+      //
+      // An account of the DGI portal is not given a DPRNK profile. The client
+      // decides this with a cross-database read that can time out, and a probe
+      // that fails OPEN would hand a DGI officer the whole DPRNK revenue
+      // register — on a network hiccup. The rule decides it from the DGI
+      // database itself, so the separation holds whatever the network does.
       allow create: if (isSupervisorOrAdmin() && request.resource.data.role != 'Admin')
         || (isSignedIn()
             && userId == request.auth.uid
-            && request.resource.data.role == 'Cashier');
+            && request.resource.data.role == 'Cashier'
+            && !isDgiAccount());
       // An Administrator may edit any profile.
       allow update, delete: if isAdmin();
       // A Supervisor may edit OTHER officers' profiles — that is what executing
@@ -118,7 +154,15 @@ service cloud.firestore {
       // document to role: 'Admin' and skip the approval queue entirely.
       allow update: if isSupervisorOrAdmin()
         && (userId != request.auth.uid
-            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+            || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+        // A role may only be granted by an Administrator. The rules cannot tell
+        // an approved promotion from an arbitrary one — the approval request's
+        // document id is not derived from its target — so this privilege is
+        // closed to Supervisors outright. The client already refuses it
+        // (updateSystemUserDirect whitelists the non-Admin roles); here the
+        // refusal is the database's, not the interface's.
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+            || isAdmin());
     }
 
     // Settings collection (including /settings/rolePermissions)
@@ -517,15 +561,16 @@ service cloud.firestore {
     // A T6 running the "T6 Print Station" app signs in with an officer account
     // and registers itself here, refreshing lastSeenAt.
     match /printStations/{stationId} {
-      allow read, create, update: if canUseApp();
+      allow read: if canUseApp() || isDgiOfficer();
+      allow create, update: if canUseApp();
       allow delete: if isAdmin();
     }
     // One print job per receipt sent to a T6. Filed by the officer who prints
     // it, as pending; the T6 then only moves it along (printing → printed, or
     // failed with the reason). A job is never rewritten or deleted.
     match /printJobs/{jobId} {
-      allow read: if canUseApp();
-      allow create: if canUseApp()
+      allow read: if canUseApp() || isDgiOfficer();
+      allow create: if (canUseApp() || isDgiOfficer())
         && request.resource.data.status == 'pending'
         && request.resource.data.createdByUid == request.auth.uid;
       allow update: if canUseApp()
@@ -539,7 +584,7 @@ service cloud.firestore {
     // account, like the other fiscal records (the app shows the Ajouter,
     // Modifier and Supprimer buttons to administrators and supervisors).
     match /nomenclaturesImpots/{nomId} {
-      allow read, create, update, delete: if canUseLeases();
+      allow read, create, update, delete: if canUseLeases() || isDgiOfficer();
     }
 
     match /propertyLeases/{leaseId} {

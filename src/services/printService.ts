@@ -1,5 +1,5 @@
 import { addDoc, collection, doc, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { printDb } from '../firebase/config';
 
 /**
  * Remote printing on the T6 terminal.
@@ -13,6 +13,9 @@ import { db } from '../firebase/config';
  * - printJobs/{jobId} — one per print: the receipt as lines of text, which the
  *   T6 lays out for its paper width. Status: pending → printing → printed
  *   (or failed, with the reason). A job is never deleted.
+ *
+ * Both collections live in the DPRNK database, where the T6 app listens — the
+ * DGI portal files its jobs there too (printDb), so one T6 prints for both.
  */
 export const PRINT_STATIONS = 'printStations';
 export const PRINT_JOBS = 'printJobs';
@@ -78,7 +81,7 @@ export function subscribeToPrintStations(
   onError?: (err: unknown) => void
 ): Unsubscribe {
   return onSnapshot(
-    collection(db, PRINT_STATIONS),
+    collection(printDb(), PRINT_STATIONS),
     (snap) =>
       callback(
         snap.docs
@@ -112,14 +115,14 @@ export async function sendPrintJob(input: {
     createdByName: input.actor.displayName,
     ...(input.source ? { source: input.source } : {}),
   };
-  const ref = await addDoc(collection(db, PRINT_JOBS), job);
+  const ref = await addDoc(collection(printDb(), PRINT_JOBS), job);
   return ref.id;
 }
 
 /** Follow one job's status as the T6 prints it. */
 export function subscribeToPrintJob(id: string, callback: (job: PrintJob | null) => void): Unsubscribe {
   return onSnapshot(
-    doc(db, PRINT_JOBS, id),
+    doc(printDb(), PRINT_JOBS, id),
     (snap) => callback(snap.exists() ? { ...(snap.data() as PrintJob), id: snap.id } : null),
     (err) => {
       console.warn('[Print] Job listener unavailable:', err);
