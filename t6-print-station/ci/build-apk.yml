@@ -23,11 +23,13 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build the APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build the APKs (DPRNK and DGI)
+        run: gradle assembleDprnkDebug assembleDgiDebug --no-daemon --stacktrace
 
-      - name: Name the APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk T6-Print-Station.apk
+      - name: Name the APKs
+        run: |
+          cp app/build/outputs/apk/dprnk/debug/app-dprnk-debug.apk T6-Print-Station.apk
+          cp app/build/outputs/apk/dgi/debug/app-dgi-debug.apk DGI-T6-Print-Station.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,3 +43,11 @@ jobs:
           name: T6 Print Station (latest)
           files: T6-Print-Station.apk
           make_latest: true
+
+      - name: Publish the DGI app
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dgi-t6-latest
+          name: DGI T6 Print Station (latest)
+          files: DGI-T6-Print-Station.apk
+          make_latest: false

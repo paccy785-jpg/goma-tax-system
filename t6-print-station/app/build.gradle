@@ -10,8 +10,31 @@ android {
         applicationId 'cd.dprnk.t6print'
         minSdk 24
         targetSdk 33
-        versionCode 2
-        versionName '1.1.0'
+        versionCode 3
+        versionName '1.2.0'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // One app per portal, each printing from its own portal's database only:
+    // the DPRNK app (unchanged id, so it updates in place) and the DGI app, a
+    // separate install with its own id, name and database. The DGI values
+    // live in src/dgi/res (they override the DPRNK defaults of src/main/res).
+    flavorDimensions 'portal'
+    productFlavors {
+        dprnk {
+            dimension 'portal'
+            applicationId 'cd.dprnk.t6print'
+            buildConfigField 'String', 'PORTAL', '"DPRNK"'
+        }
+        dgi {
+            dimension 'portal'
+            applicationId 'cd.dgi.t6print'
+            versionNameSuffix '-dgi'
+            buildConfigField 'String', 'PORTAL', '"DGI"'
+        }
     }
 
     buildTypes {

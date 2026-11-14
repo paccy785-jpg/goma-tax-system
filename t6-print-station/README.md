@@ -30,3 +30,19 @@ Android SDK 34).
 3. Sign in with a DPRNK account (an active officer account).
 4. Check the printer is **VirtualBtPrinter**, the paper width, and print the test page.
 5. Tap **Démarrer la réception des reçus**. Leave *Démarrer automatiquement* on.
+
+## Two apps: DPRNK and DGI
+
+The same code builds two separate apps (Gradle flavours `dprnk` and `dgi`).
+Each prints only its own portal's receipts — the two portals never share a
+print station:
+
+| App | Package | Reads | Release |
+|---|---|---|---|
+| **T6 Print Station** (DPRNK) | `cd.dprnk.t6print` | database `goma-tax-system` | `t6-latest` → `T6-Print-Station.apk` |
+| **DGI T6 Print Station** | `cd.dgi.t6print` | database `goma-tax-system-dgi` | `dgi-t6-latest` → `DGI-T6-Print-Station.apk` |
+
+The DGI app signs in with a **DGI** officer account; its stations and jobs
+live in the DGI database (`printStations`, `printJobs` — see
+`firestore.dgi.rules`). Both apps can be installed on the same T6.
+Locally: `gradle assembleDprnkDebug assembleDgiDebug`.

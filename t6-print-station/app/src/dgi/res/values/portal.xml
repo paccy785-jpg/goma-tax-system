@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The DGI print station: its own name, its own wording, and the DGI portal's
+  own database (goma-tax-system-dgi — the same id the web app uses, see
+  src/firebase/config.ts). It never reads the DPRNK print queue.
+-->
+<resources>
+    <string name="app_name">DGI T6 Print Station</string>
+    <string name="firebase_database_id" translatable="false">goma-tax-system-dgi</string>
+    <string name="screen_title">DGI — Imprimante des reçus</string>
+    <string name="screen_subtitle">Les reçus imprimés depuis le portail DGI sortent sur ce T6.</string>
+    <string name="account_heading">1. Compte DGI</string>
+    <string name="station_name_label">Nom de ce T6 (affiché dans le portail DGI)</string>
+</resources>

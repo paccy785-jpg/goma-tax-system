@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
             if (PrintStationService.isRunning()) {
                 PrintStationService.stop(this);
             } else if (prefs.refreshToken() == null) {
-                toast("Connectez-vous d’abord avec un compte DPRNK.");
+                toast("Connectez-vous d’abord avec un compte " + BuildConfig.PORTAL + ".");
             } else if (prefs.printerAddress() == null) {
                 toast("Choisissez d’abord l’imprimante.");
             } else {
@@ -207,7 +207,7 @@ public class MainActivity extends Activity {
             try {
                 List<ReceiptLine> lines = new ArrayList<>();
                 lines.add(ReceiptLine.text("RÉPUBLIQUE DÉMOCRATIQUE DU CONGO", "center", true, 1));
-                lines.add(ReceiptLine.text("DPRNK — Page de test", "center", true, 2));
+                lines.add(ReceiptLine.text(BuildConfig.PORTAL + " — Page de test", "center", true, 2));
                 lines.add(ReceiptLine.rule());
                 lines.add(ReceiptLine.pair("Imprimante", prefs.printerName(), true));
                 lines.add(ReceiptLine.pair("Papier", prefs.paperMm() + " mm", true));

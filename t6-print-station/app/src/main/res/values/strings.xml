@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">T6 Print Station</string>
+    <!-- The portal's wording on the screen. The DGI app overrides these in src/dgi/res. -->
+    <string name="screen_title">DPRNK — Imprimante des reçus</string>
+    <string name="screen_subtitle">Les reçus imprimés depuis l’application DPRNK sortent sur ce T6.</string>
+    <string name="account_heading">1. Compte DPRNK</string>
+    <string name="station_name_label">Nom de ce T6 (affiché dans l’application DPRNK)</string>
 </resources>

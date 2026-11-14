@@ -29,16 +29,26 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build the APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      # Two apps, one per portal: DPRNK (T6-Print-Station.apk, unchanged
+      # name) and DGI (DGI-T6-Print-Station.apk), each printing from its own
+      # portal's database only.
+      - name: Build the APKs
+        run: gradle assembleDprnkDebug assembleDgiDebug --no-daemon --stacktrace
 
-      - name: Name the APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk T6-Print-Station.apk
+      - name: Name the APKs
+        run: |
+          cp app/build/outputs/apk/dprnk/debug/app-dprnk-debug.apk T6-Print-Station.apk
+          cp app/build/outputs/apk/dgi/debug/app-dgi-debug.apk DGI-T6-Print-Station.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: T6-Print-Station
           path: t6-print-station/T6-Print-Station.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DGI-T6-Print-Station
+          path: t6-print-station/DGI-T6-Print-Station.apk
 
       - name: Publish it as the "t6-latest" release
         uses: softprops/action-gh-release@v2
@@ -47,3 +57,11 @@ jobs:
           name: T6 Print Station (latest)
           files: t6-print-station/T6-Print-Station.apk
           make_latest: true
+
+      - name: Publish the DGI app as the "dgi-t6-latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dgi-t6-latest
+          name: DGI T6 Print Station (latest)
+          files: t6-print-station/DGI-T6-Print-Station.apk
+          make_latest: false

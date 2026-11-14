@@ -145,7 +145,7 @@ public final class FirestoreRest {
                     || message.contains("INVALID_LOGIN_CREDENTIALS")) {
                 throw new IOException("E-mail ou mot de passe incorrect");
             }
-            if (res.code() == 403) throw new IOException("Accès refusé (compte sans accès au portail DPRNK ?)");
+            if (res.code() == 403) throw new IOException("Accès refusé (compte sans accès au portail " + BuildConfig.PORTAL + " ?)");
             throw new IOException("HTTP " + res.code() + " — " + message.trim());
         }
     }

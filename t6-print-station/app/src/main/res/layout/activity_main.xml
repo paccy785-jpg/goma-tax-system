@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="DPRNK — Imprimante des reçus"
+            android:text="@string/screen_title"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Les reçus imprimés depuis l’application DPRNK sortent sur ce T6."
+            android:text="@string/screen_subtitle"
             android:textSize="13sp" />
 
         <!-- 1. Compte -->
@@ -29,7 +29,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="1. Compte DPRNK"
+            android:text="@string/account_heading"
             android:textSize="15sp"
             android:textStyle="bold" />
 
@@ -94,7 +94,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Nom de ce T6 (affiché dans l’application DPRNK)"
+            android:text="@string/station_name_label"
             android:textSize="13sp" />
 
         <EditText
